@@ -1,0 +1,36 @@
+# docker compose -f compose.yaml -f compose.server01.yaml up -d --build
+# Requires Docker Compose >= 2.24.4; project/volume names remain unchanged.
+services:
+  database:
+    ports: !reset []
+
+  collector:
+    networks:
+      default:
+      collector-egress:
+
+  dashboard:
+    ports: !reset []
+    environment:
+      DASHBOARD_AUTH_ENABLED: "true"
+      DASHBOARD_AUTH_USERNAME: ${DASHBOARD_AUTH_USERNAME:?DASHBOARD_AUTH_USERNAME fehlt}
+      DASHBOARD_AUTH_PASSWORD_HASH: ${DASHBOARD_AUTH_PASSWORD_HASH:?DASHBOARD_AUTH_PASSWORD_HASH fehlt}
+      DASHBOARD_SECRET_KEY: ${DASHBOARD_SECRET_KEY:?DASHBOARD_SECRET_KEY fehlt}
+      DASHBOARD_HEALTH_TOKEN: ${DASHBOARD_HEALTH_TOKEN:?DASHBOARD_HEALTH_TOKEN fehlt}
+      DASHBOARD_AUTH_SECURE_COOKIE: "true"
+      DASHBOARD_TRUSTED_PROXY_COUNT: "1"
+      # Loopback hosts keep the authenticated container healthcheck functional.
+      DASHBOARD_TRUSTED_HOSTS: kraftwerk.fluxo.io,127.0.0.1,localhost
+    networks:
+      default:
+      reverse-proxy:
+        aliases:
+          - kraftwerk-web
+
+networks:
+  default:
+    internal: true
+  collector-egress:
+  reverse-proxy:
+    external: true
+    name: ${REVERSE_PROXY_NETWORK:-reverse-proxy}

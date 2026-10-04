@@ -1,0 +1,7 @@
+aiofiles==25.1.0
+aiohttp==3.14.3
+asyncpg==0.31.0
+cryptography==50.0.0
+paho-mqtt==2.1.0
+python-dotenv==1.2.1
+anker-solix-api @ https://github.com/thomluther/anker-solix-api/archive/refs/tags/v3.8.2.tar.gz#sha256=bf5e7811fb3261b459b1d3550de3f80ff8b8d1ea8cae3cddd85419fd375c7294

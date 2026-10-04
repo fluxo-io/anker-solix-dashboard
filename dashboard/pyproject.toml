@@ -1,0 +1,10 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+cache-dir = "/tmp/ruff-cache"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "SIM", "UP"]

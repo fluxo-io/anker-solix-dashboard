@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Fluxo-Demoprojekt für private Anker-SOLIX-Daten.">
+    <meta name="theme-color" content="#007aaf">
+    <title>{% block title %}Private Solardatenbank{% endblock %}</title>
+    <link rel="icon" href="{{ url_for('static', filename='img/logo-fluxo_io.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='brand.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='toasts.css') }}">
+    <script defer src="{{ url_for('static', filename='toasts.js') }}"></script>
+  </head>
+  <body class="public-shell">
+    <a class="skip-link" href="#main-content">Zum Inhalt</a>
+    <header class="public-header">
+      <a class="public-brand" href="/" aria-label="Private Solardatenbank">
+        <img src="{{ url_for('static', filename='img/logo-fluxo_io.svg') }}" alt="fluxo.io">
+        <span>Private Solardatenbank</span>
+      </a>
+    </header>
+
+    <main id="main-content" class="public-main {% block main_class %}{% endblock %}" tabindex="-1">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="public-footer">
+      <div class="footer-brand">
+        <img src="{{ url_for('static', filename='img/logo-fluxo_io.svg') }}" alt="">
+        <span>&copy; {{ current_year }} fluxo.io · Private Solardatenbank</span>
+      </div>
+      <nav aria-label="Rechtliches">
+        <a href="/impressum"{% if request.path == '/impressum' %} aria-current="page"{% endif %}>Impressum</a>
+        <a href="/datenschutz"{% if request.path == '/datenschutz' %} aria-current="page"{% endif %}>Datenschutz</a>
+      </nav>
+    </footer>
+  </body>
+</html>

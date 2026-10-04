@@ -1,0 +1,10 @@
+# Compatibility overlay: compose.yaml already runs locally without reverse-proxy.
+# docker compose -f compose.yaml -f compose.local.yaml up -d --build
+services:
+  collector:
+    networks: !override
+      - default
+
+  dashboard:
+    networks: !override
+      - default

@@ -1,0 +1,17 @@
+{% extends "public_base.html" %}
+{% block title %}Abmelden · Private Solardatenbank{% endblock %}
+{% block main_class %}auth-main{% endblock %}
+{% block content %}
+  <section class="auth-card" aria-labelledby="logout-title">
+    <div class="auth-heading">
+      <p class="eyebrow">FLUXO.IO</p>
+      <h1 id="logout-title">Abmelden?</h1>
+      <p>Private Solardatenbank</p>
+    </div>
+    <form method="post" action="{{ url_for('solarbank_auth_logout') }}">
+      {{ form.csrf_token }}
+      {{ form.submit(class_='primary-button') }}
+    </form>
+    <a class="secondary-button" href="/">Zurück</a>
+  </section>
+{% endblock %}

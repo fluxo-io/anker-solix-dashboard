@@ -1,0 +1,112 @@
+{% extends "legal_base.html" %}
+{% set legal_title = "Datenschutzerklärung" %}
+{% block legal_content %}
+  <section aria-labelledby="privacy-controller">
+    <h2 id="privacy-controller">1. Verantwortlicher</h2>
+    <p>fluxo.io UG (haftungsbeschränkt)<br>
+      Nikolaus-Groß-Str. 19<br>
+      40764 Langenfeld</p>
+    <p>Ansprechpartner: Thomas Walawgo<br>
+      Datenschutz: <a href="mailto:datenschutz@fluxo.io">datenschutz@fluxo.io</a></p>
+  </section>
+
+  <section aria-labelledby="privacy-access">
+    <h2 id="privacy-access">2. Hosting und Protokolle</h2>
+    <p>Beim Aufruf des Dashboards werden technisch erforderliche Verbindungsdaten
+      verarbeitet. Dazu können IP-Adresse, Zeitpunkt, angeforderte Adresse,
+      Antwortstatus, Referrer und Browserangaben gehören.</p>
+    <p>Die Anwendung sowie Webserver, Container und ein vorgeschalteter Proxy können
+      Betriebs- und Fehlerprotokolle führen. Umfang und Aufbewahrung richten sich
+      nach der jeweiligen Serverkonfiguration. Die Verarbeitung dient der sicheren
+      und zuverlässigen Bereitstellung des Dienstes nach Art. 6 Abs. 1 lit. f
+      DSGVO.</p>
+  </section>
+
+  <section aria-labelledby="privacy-login">
+    <h2 id="privacy-login">3. Anmeldung und Schutz</h2>
+    <p>Das Dashboard verwendet ein einzelnes, vom Betreiber eingerichtetes Konto.
+      Gespeichert werden der Benutzername und ein Scrypt-Passwort-Hash. Das
+      Passwort wird nicht im Klartext gespeichert.</p>
+    <p>Zum Schutz vor wiederholten Fehlversuchen wird die IP-Adresse mit einem
+      geheimen Schlüssel als HMAC pseudonymisiert. Gespeichert werden nur dieser
+      Prüfwert und der Zeitpunkt des Fehlversuchs. Die Einträge werden für die
+      Begrenzung höchstens etwa eine Stunde berücksichtigt und bei einem folgenden
+      Anmeldeversuch bereinigt. Nach erfolgreicher Anmeldung werden die Einträge
+      des Prüfwerts gelöscht.</p>
+    <p>Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Unser berechtigtes Interesse
+      liegt im Schutz des Zugangs und der darin verfügbaren Energiedaten.</p>
+  </section>
+
+  <section aria-labelledby="privacy-cookie">
+    <h2 id="privacy-cookie">4. Sitzung und Formularschutz</h2>
+    <p>Für Anmeldung und CSRF-Schutz wird ein technisch erforderliches
+      Sitzungscookie gesetzt. Es enthält signierte Sitzungs- und Schutzwerte, aber
+      kein Passwort. Die Sitzung endet spätestens nach der konfigurierten Laufzeit;
+      voreingestellt sind zwölf Stunden. Das Cookie ist als HttpOnly und SameSite
+      Lax konfiguriert und wird im öffentlichen HTTPS-Betrieb nur verschlüsselt
+      übertragen.</p>
+    <p>Das Cookie ist für die ausdrücklich angeforderten Funktionen erforderlich
+      (§ 25 Abs. 2 Nr. 2 TDDDG). Ohne das Cookie sind Anmeldung und geschützte
+      Formulare nicht nutzbar.</p>
+  </section>
+
+  <section aria-labelledby="privacy-energy">
+    <h2 id="privacy-energy">5. Solarbank-Daten</h2>
+    <p>Der Collector ruft Mess- und Gerätedaten aus der Anker-Cloud ab und speichert
+      sie in PostgreSQL. Dazu gehören insbesondere Anlagen- und Gerätekennungen,
+      Seriennummer, Gerätename und -modell, Zeitpunkte, Leistungswerte,
+      Ladezustand, Statusangaben und – soweit von der Schnittstelle geliefert –
+      Temperaturwerte.</p>
+    <p>Zusätzlich wird der vollständige dekodierte Geräte- und Anlagen-Datensatz als
+      JSON gespeichert. Er kann weitere technische Angaben des Anker-Kontos und der
+      Geräte enthalten. Das Dashboard zeigt ausgewählte Werte, Diagramme und den
+      bereinigten Rohdatensatz. Gewählte Messwerte können als CSV heruntergeladen
+      werden; der Download erzeugt keine zusätzliche dauerhafte Kopie auf dem
+      Dashboard-Server.</p>
+    <p>Messwerte bleiben in der Datenbank, bis sie manuell gelöscht werden.</p>
+  </section>
+
+  <section aria-labelledby="privacy-anker">
+    <h2 id="privacy-anker">6. Anker-Cloud</h2>
+    <p>Der Abruf erfolgt mit den hinterlegten Zugangsdaten über eine inoffizielle,
+      nicht von Anker dokumentierte Cloud-Schnittstelle. Der Collector verbindet
+      sich dazu mit Diensten von Anker. Beim bloßen Aufruf des Dashboards stellt der
+      Browser keine direkte Verbindung zu Anker her. Für die Datenverarbeitung bei
+      Anker gelten die Hinweise des jeweiligen Anbieters.</p>
+  </section>
+
+  <section aria-labelledby="privacy-browser">
+    <h2 id="privacy-browser">7. Browser-Speicher</h2>
+    <p>Die Einstellung für den Auto-Refresh wird im lokalen Speicher des Browsers
+      gespeichert. Sie bleibt dort erhalten, bis sie über die Browserfunktionen
+      gelöscht oder zurückgesetzt wird. Dabei wird kein Nutzungsprofil erstellt.</p>
+  </section>
+
+  <section aria-labelledby="privacy-services">
+    <h2 id="privacy-services">8. Keine Reichweitenmessung</h2>
+    <p>Wir verwenden kein Tracking und keine externen Analyse-, Schrift- oder
+      Skriptdienste. Logo, Schriften, Styles und Anwendungsskripte werden vom
+      Dashboard selbst ausgeliefert. Erst beim Aufruf eines externen Links wird
+      eine Verbindung zum jeweiligen Zielangebot hergestellt.</p>
+  </section>
+
+  <section aria-labelledby="privacy-contact">
+    <h2 id="privacy-contact">9. Kontakt</h2>
+    <p>Wenn Sie uns per E-Mail kontaktieren, verarbeiten wir Ihre Adresse, Nachricht
+      und freiwillig mitgeteilte Angaben zur Bearbeitung der Anfrage. Je nach Inhalt
+      gilt Art. 6 Abs. 1 lit. b oder lit. f DSGVO. Wir löschen die Angaben, sobald
+      sie nicht mehr benötigt werden und keine Aufbewahrungspflichten bestehen.</p>
+  </section>
+
+  <section aria-labelledby="privacy-rights">
+    <h2 id="privacy-rights">10. Ihre Rechte</h2>
+    <p>Nach den gesetzlichen Voraussetzungen haben Sie Rechte auf Auskunft,
+      Berichtigung, Löschung, Einschränkung und Datenübertragbarkeit nach Art.
+      15–20 DSGVO. Gegen Verarbeitungen aufgrund berechtigter Interessen können Sie
+      aus Gründen Ihrer besonderen Situation widersprechen (Art. 21 DSGVO).</p>
+    <p>Sie können sich bei einer Datenschutzaufsichtsbehörde beschweren. Zur
+      Ausübung Ihrer Rechte wenden Sie sich an den oben genannten Kontakt.</p>
+  </section>
+
+  <p class="legal-date">Stand: Oktober 2026</p>
+{% endblock %}

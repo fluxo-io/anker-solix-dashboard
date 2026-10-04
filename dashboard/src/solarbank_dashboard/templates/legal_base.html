@@ -1,0 +1,12 @@
+{% extends "public_base.html" %}
+{% block title %}{{ legal_title }} · Private Solardatenbank{% endblock %}
+{% block main_class %}legal-main{% endblock %}
+{% block content %}
+  <article class="legal-page">
+    <header class="legal-heading">
+      <p class="eyebrow">FLUXO.IO</p>
+      <h1>{{ legal_title }}</h1>
+    </header>
+    {% block legal_content %}{% endblock %}
+  </article>
+{% endblock %}

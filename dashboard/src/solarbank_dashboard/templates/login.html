@@ -1,0 +1,30 @@
+{% extends "public_base.html" %}
+{% block title %}Anmelden · Solarbank Dashboard{% endblock %}
+{% block main_class %}auth-main{% endblock %}
+{% block content %}
+  <section class="auth-card" aria-labelledby="login-title">
+    <div class="auth-heading">
+      <p class="eyebrow">FLUXO.IO</p>
+      <h1 id="login-title">Solarbank Dashboard</h1>
+      <p>Geschützter Bereich</p>
+    </div>
+    {% if notice %}
+      <div class="form-notice" data-toast-message data-toast-type="info" data-toast-remove>
+        <span data-toast-text>{{ notice }}</span>
+      </div>
+    {% endif %}
+    {% if message %}<p id="login-error" class="form-error" role="alert">{{ message }}</p>{% endif %}
+    <form method="post" action="{{ url_for('solarbank_auth_login') }}">
+      {{ form.csrf_token }}
+      <div class="form-field form-floating">
+        {{ form.username(class_='form-control', placeholder='Benutzername', autocomplete='username', autofocus=true, aria_invalid='true' if message else false, aria_describedby='login-error' if message else false) }}
+        <label for="username">Benutzername</label>
+      </div>
+      <div class="form-field form-floating">
+        {{ form.password(class_='form-control', placeholder='Passwort', autocomplete='current-password', aria_invalid='true' if message else false, aria_describedby='login-error' if message else false) }}
+        <label for="password">Passwort</label>
+      </div>
+      {{ form.submit(class_='primary-button') }}
+    </form>
+  </section>
+{% endblock %}
