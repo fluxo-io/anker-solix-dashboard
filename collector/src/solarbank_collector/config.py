@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 class ConfigurationError(ValueError):
@@ -43,10 +43,46 @@ def _boolean(name: str, default: bool) -> bool:
     raise ConfigurationError(f"{name} muss true oder false sein")
 
 
+def _api_timeout() -> int:
+    try:
+        value = int(os.getenv("API_TIMEOUT_SECONDS", "5"))
+    except ValueError as error:
+        raise ConfigurationError("API_TIMEOUT_SECONDS ist ungültig") from error
+    if not 1 <= value <= 60:
+        raise ConfigurationError("API_TIMEOUT_SECONDS muss zwischen 1 und 60 liegen")
+    return value
+
+
+def _api_url() -> str:
+    from urllib.parse import urlsplit
+
+    value = os.getenv("API_URL", "http://api:8001").rstrip("/")
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ConfigurationError("API_URL ist ungültig")
+    return value
+
+
+def _api_token() -> str:
+    value = _secret("API_TOKEN")
+    if len(value) < 32 or any(c.isspace() for c in value):
+        raise ConfigurationError(
+            "API_TOKEN benötigt mindestens 32 Zeichen ohne Leerzeichen"
+        )
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     anker_username: str
-    anker_password: str
+    anker_password: str = field(repr=False)
     anker_country: str
     anker_device_sn: str | None
     anker_payload_encryption: bool
@@ -54,11 +90,10 @@ class Settings:
     api_request_timeout_seconds: int
     max_retries: int
     log_level: str
-    db_host: str
-    db_port: int
-    db_name: str
-    db_user: str
-    db_password: str
+    api_url: str
+    api_token: str = field(repr=False)
+
+    api_timeout_seconds: int = 5
 
     @classmethod
     def from_environment(cls) -> Settings:
@@ -87,9 +122,7 @@ class Settings:
             ),
             max_retries=_integer("MAX_RETRIES", 2, minimum=0, maximum=10),
             log_level=log_level,
-            db_host=_required("DB_HOST"),
-            db_port=_integer("DB_PORT", 5432, minimum=1, maximum=65_535),
-            db_name=_required("DB_NAME"),
-            db_user=_required("DB_USER"),
-            db_password=_secret("DB_PASSWORD"),
+            api_timeout_seconds=_api_timeout(),
+            api_url=_api_url(),
+            api_token=_api_token(),
         )

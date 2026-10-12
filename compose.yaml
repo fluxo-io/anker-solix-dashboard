@@ -1,71 +1,80 @@
 name: anker-solix-dashboard
 
-services:
-  database:
-    image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-solarbank}
-      POSTGRES_USER: ${POSTGRES_USER:-solarbank}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD fehlt}
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    security_opt:
-      - no-new-privileges:true
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "3"
+x-runtime: &runtime
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  pids_limit: 128
+  stop_grace_period: 45s
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
 
-  migration:
-    image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-    restart: "no"
-    depends_on:
-      database:
-        condition: service_healthy
+services:
+  api:
+    <<: *runtime
+    build:
+      context: .
+      target: api
+    user: "0:0"
+    cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID]
     environment:
-      PGHOST: database
-      PGPORT: 5432
-      PGDATABASE: ${POSTGRES_DB:-solarbank}
-      PGUSER: ${POSTGRES_USER:-solarbank}
-      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD fehlt}
-      DASHBOARD_DB_USER: ${DASHBOARD_DB_USER:-solarbank_dashboard}
-      DASHBOARD_DB_PASSWORD: ${DASHBOARD_DB_PASSWORD:?DASHBOARD_DB_PASSWORD fehlt}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env}
+      INIT_ADMIN_USERNAME: ${INIT_ADMIN_USERNAME:-admin}
+      INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:-}
+      INIT_ADMIN_PASSWORD_HASH: ${INIT_ADMIN_PASSWORD_HASH:-}
+      DATA_DIR: /data
     volumes:
-      - ./db/migrations:/migrations:ro
-    command:
-      - sh
-      - -ec
-      - |
-        for migration in /migrations/*.sql; do
-          psql --set=ON_ERROR_STOP=1 \
-            --set=dashboard_user="$$DASHBOARD_DB_USER" \
-            --set=dashboard_password="$$DASHBOARD_DB_PASSWORD" \
-            --file="$$migration"
-        done
-    security_opt:
-      - no-new-privileges:true
+      - ${DATA_DIR:-./data}/db:/data
+    networks: [backend]
+
+  web:
+    <<: *runtime
+    build:
+      context: .
+      target: web
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      API_URL: http://api:8001
+      API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env}
+      API_TIMEOUT_SECONDS: ${API_TIMEOUT_SECONDS:-5}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      SESSION_HOURS: ${SESSION_HOURS:-8}
+      CANONICAL_ORIGIN: ${CANONICAL_ORIGIN:-}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      DASHBOARD_TIMEZONE: ${DASHBOARD_TIMEZONE:-Europe/Berlin}
+      ANKER_SOURCE_TIMEZONE: ${ANKER_SOURCE_TIMEZONE:-}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-300}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${PORT:-8501}:8000"
+    networks: [web, backend]
 
   collector:
+    <<: *runtime
     build:
-      context: ./collector
-      target: runtime
-    restart: unless-stopped
-    depends_on:
-      migration:
-        condition: service_completed_successfully
+      context: .
+      target: collector
+    user: "0:0"
+    cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID]
     environment:
-      ANKER_USERNAME: ${ANKER_USERNAME:?ANKER_USERNAME fehlt}
-      ANKER_PASSWORD: ${ANKER_PASSWORD:?ANKER_PASSWORD fehlt}
+      API_URL: http://api:8001
+      API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env}
+      API_TIMEOUT_SECONDS: ${API_TIMEOUT_SECONDS:-5}
+      ANKER_USERNAME: ${ANKER_USERNAME:?Set ANKER_USERNAME in .env}
+      ANKER_PASSWORD: ${ANKER_PASSWORD:?Set ANKER_PASSWORD in .env}
       ANKER_COUNTRY: ${ANKER_COUNTRY:-DE}
       ANKER_DEVICE_SN: ${ANKER_DEVICE_SN:-}
       ANKER_PAYLOAD_ENCRYPTION: ${ANKER_PAYLOAD_ENCRYPTION:-false}
@@ -73,74 +82,52 @@ services:
       API_REQUEST_TIMEOUT_SECONDS: ${API_REQUEST_TIMEOUT_SECONDS:-90}
       MAX_RETRIES: ${MAX_RETRIES:-2}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      DB_HOST: database
-      DB_PORT: 5432
-      DB_NAME: ${POSTGRES_DB:-solarbank}
-      DB_USER: ${POSTGRES_USER:-solarbank}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD fehlt}
     volumes:
-      - anker_auth_cache:/var/lib/anker-cache
-    healthcheck:
-      test: ["CMD", "python", "-m", "solarbank_collector.healthcheck"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 2m
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    stop_grace_period: 3m
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "3"
-
-  dashboard:
-    build:
-      context: ./dashboard
-      target: runtime
-    restart: unless-stopped
+      - ${DATA_DIR:-./data}/collector:/data
     depends_on:
-      migration:
-        condition: service_completed_successfully
-    environment:
-      DB_HOST: database
-      DB_PORT: 5432
-      DB_NAME: ${POSTGRES_DB:-solarbank}
-      DB_USER: ${DASHBOARD_DB_USER:-solarbank_dashboard}
-      DB_PASSWORD: ${DASHBOARD_DB_PASSWORD:?DASHBOARD_DB_PASSWORD fehlt}
-      DASHBOARD_TIMEZONE: ${DASHBOARD_TIMEZONE:-Europe/Berlin}
-      ANKER_SOURCE_TIMEZONE: ${ANKER_SOURCE_TIMEZONE:-}
-      DASHBOARD_AUTH_ENABLED: ${DASHBOARD_AUTH_ENABLED:-false}
-      DASHBOARD_AUTH_USERNAME: ${DASHBOARD_AUTH_USERNAME:-}
-      DASHBOARD_AUTH_PASSWORD_HASH: ${DASHBOARD_AUTH_PASSWORD_HASH:-}
-      DASHBOARD_SECRET_KEY: ${DASHBOARD_SECRET_KEY:-}
-      DASHBOARD_HEALTH_TOKEN: ${DASHBOARD_HEALTH_TOKEN:-}
-      DASHBOARD_AUTH_SECURE_COOKIE: ${DASHBOARD_AUTH_SECURE_COOKIE:-true}
-      DASHBOARD_AUTH_SESSION_HOURS: ${DASHBOARD_AUTH_SESSION_HOURS:-12}
-      DASHBOARD_TRUSTED_PROXY_COUNT: ${DASHBOARD_TRUSTED_PROXY_COUNT:-0}
-      DASHBOARD_TRUSTED_HOSTS: ${DASHBOARD_TRUSTED_HOSTS:-}
-      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-300}
-    ports:
-      - "127.0.0.1:${DASHBOARD_PORT:-8501}:8501"
-    healthcheck:
-      test: ["CMD", "python", "-m", "solarbank_dashboard.healthcheck"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      api:
+        condition: service_healthy
+    networks: [backend, collector-egress]
+    stop_grace_period: 3m
+
+  web-tests:
+    profiles: [test]
+    build:
+      context: .
+      target: web-tests
+    network_mode: none
     read_only: true
     tmpfs:
-      - /tmp:size=64m,mode=1777
-    security_opt:
-      - no-new-privileges:true
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "3"
+      - /tmp:rw,nosuid,size=128m
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
 
-volumes:
-  postgres_data:
-  anker_auth_cache:
+  api-tests:
+    profiles: [test]
+    build:
+      context: .
+      target: api-tests
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  collector-tests:
+    profiles: [test]
+    build:
+      context: .
+      target: collector-tests
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+networks:
+  web:
+  backend:
+    internal: true
+  collector-egress:

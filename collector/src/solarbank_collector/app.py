@@ -4,6 +4,8 @@ import asyncio
 import contextlib
 import logging
 import signal
+import time
+from pathlib import Path
 
 from .config import ConfigurationError, Settings
 from .mapping import seconds_until_next_bucket, utc_now
@@ -37,7 +39,7 @@ def _configure_logging(settings: Settings) -> None:
         SecretRedactionFilter(
             settings.anker_username,
             settings.anker_password,
-            settings.db_password,
+            settings.api_token,
         )
     )
 
@@ -47,7 +49,7 @@ def _safe_error(error: Exception, settings: Settings) -> str:
     for secret in (
         settings.anker_username,
         settings.anker_password,
-        settings.db_password,
+        settings.api_token,
     ):
         if secret:
             message = message.replace(secret, "***")
@@ -111,6 +113,15 @@ async def _collect_once(
     return False
 
 
+HEARTBEAT = Path("/tmp/collector-heartbeat")
+
+
+async def _heartbeat(stop_event: asyncio.Event) -> None:
+    while not stop_event.is_set():
+        HEARTBEAT.write_text(str(time.time()))
+        await _wait_or_stop(stop_event, 10)
+
+
 async def run(settings: Settings) -> None:
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -124,16 +135,24 @@ async def run(settings: Settings) -> None:
         settings.anker_country,
     )
 
-    async with (
-        MeasurementRepository(settings) as repository,
-        AnkerCloudSource(settings, LOGGER) as source,
-    ):
-        while not stop_event.is_set():
-            await _collect_once(source, repository, settings, stop_event)
-            if stop_event.is_set():
-                break
-            delay = seconds_until_next_bucket(utc_now(), settings.poll_interval_seconds)
-            await _wait_or_stop(stop_event, delay)
+    heartbeat = asyncio.create_task(_heartbeat(stop_event))
+    try:
+        async with (
+            MeasurementRepository(settings) as repository,
+            AnkerCloudSource(settings, LOGGER) as source,
+        ):
+            while not stop_event.is_set():
+                await _collect_once(source, repository, settings, stop_event)
+                if stop_event.is_set():
+                    break
+                delay = seconds_until_next_bucket(
+                    utc_now(), settings.poll_interval_seconds
+                )
+                await _wait_or_stop(stop_event, delay)
+    finally:
+        stop_event.set()
+        await heartbeat
+        HEARTBEAT.unlink(missing_ok=True)
 
     LOGGER.info("Collector beendet")
 

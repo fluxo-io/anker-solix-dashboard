@@ -1,6 +1,14 @@
 .env
+.env.*
+!.env.example
 .pytest_cache/
 __pycache__/
 *.py[cod]
 *.log
 .DS_Store
+
+# Private runtime data
+data/
+backups/
+*.sqlite3*
+.venv/

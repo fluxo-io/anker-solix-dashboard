@@ -1,0 +1,19 @@
+services:
+  web:
+    ports: !reset []
+    environment:
+      SESSION_COOKIE_SECURE: "true"
+      CANONICAL_ORIGIN: ${CANONICAL_ORIGIN:-https://kraftwerk.fluxo.io}
+      TRUST_PROXY: "true"
+      AUTH_ENABLED: "true"
+    networks:
+      web: {}
+      backend: {}
+      reverse-proxy:
+        aliases:
+          - kraftwerk-web
+
+networks:
+  reverse-proxy:
+    external: true
+    name: ${REVERSE_PROXY_NETWORK:-reverse-proxy}

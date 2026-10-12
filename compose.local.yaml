@@ -1,10 +1,8 @@
-# Compatibility overlay: compose.yaml already runs locally without reverse-proxy.
-# docker compose -f compose.yaml -f compose.local.yaml up -d --build
 services:
-  collector:
-    networks: !override
-      - default
-
-  dashboard:
-    networks: !override
-      - default
+  web:
+    ports: !override
+      - "127.0.0.1:${PORT:-8501}:8000"
+    environment:
+      SESSION_COOKIE_SECURE: "false"
+      CANONICAL_ORIGIN: ""
+      TRUST_PROXY: "false"
