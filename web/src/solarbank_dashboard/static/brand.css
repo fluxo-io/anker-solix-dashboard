@@ -102,14 +102,16 @@ input {
   border-bottom: 1px solid rgba(12, 77, 106, 0.16);
   display: flex;
   min-height: 4.5rem;
-  padding: 0 clamp(1rem, 3vw, 2rem);
+  padding: 0.75rem clamp(1rem, 3vw, 2rem);
 }
 
 .public-brand {
   align-items: center;
   color: var(--fluxo-ink);
   display: inline-flex;
-  font-family: var(--fluxo-font-heading);
+  min-width: 0;
+  font-family: var(--fluxo-font-body);
+  font-size: 1.25rem;
   font-weight: 700;
   gap: 0.85rem;
   text-decoration: none;
@@ -121,13 +123,15 @@ input {
 
 .public-brand img {
   display: block;
+  flex-shrink: 0;
   height: 1.9rem;
   width: auto;
 }
 
 .public-brand span {
+  min-width: 0;
   border-left: 1px solid rgba(12, 77, 106, 0.22);
-  line-height: 1.1;
+  line-height: 1.2;
   padding-left: 0.85rem;
 }
 
@@ -430,20 +434,26 @@ input {
   margin-top: 2.5rem !important;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 640px) {
   .public-header {
     min-height: 4rem;
   }
 
+  .public-brand {
+    gap: 0.65rem;
+    font-size: 0.95rem;
+  }
+
   .public-brand img {
-    height: 1.55rem;
+    height: 1.6rem;
   }
 
   .public-brand span {
-    font-size: 0.88rem;
     padding-left: 0.65rem;
   }
+}
 
+@media (max-width: 700px) {
   .public-footer {
     align-items: flex-start;
     flex-direction: column;

@@ -515,22 +515,25 @@ def build_layout(*, auth_enabled: bool = False) -> html.Div:
     period_options = [{"label": label, "value": label} for label in PRESETS]
     period_options.append({"label": CUSTOM_RANGE, "value": CUSTOM_RANGE})
 
+    app_header = html.Header(
+        html.A(
+            [
+                html.Img(
+                    id="header-logo",
+                    src="/static/img/logo-fluxo_io.svg",
+                    alt="fluxo.io",
+                ),
+                html.Span("Private Solardatenbank"),
+            ],
+            id="header-brand",
+            href="/",
+            className="header-brand",
+        ),
+        className="app-header",
+    )
+
     sidebar = html.Aside(
         [
-            html.A(
-                [
-                    html.Img(
-                        id="sidebar-logo",
-                        src="/static/img/logo-fluxo_io.svg",
-                        alt="fluxo.io",
-                        className="sidebar-logo",
-                    ),
-                    html.Span("Private Solardatenbank"),
-                ],
-                id="sidebar-brand",
-                href="/",
-                className="sidebar-brand",
-            ),
             html.Fieldset(
                 [
                     html.Legend("Filter", className="filter-title"),
@@ -969,7 +972,7 @@ def build_layout(*, auth_enabled: bool = False) -> html.Div:
         href="#main-content",
         className="skip-link",
     )
-    return html.Div([skip_link, sidebar, main], className="app-shell")
+    return html.Div([skip_link, app_header, sidebar, main], className="app-shell")
 
 
 def register_callbacks(dash_app: Dash) -> None:

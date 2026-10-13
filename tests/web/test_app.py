@@ -214,8 +214,8 @@ def test_layout_shows_logout_only_when_authentication_is_enabled() -> None:
 def test_layout_contains_fluxo_branding_and_legal_footer() -> None:
     layout = app_module.build_layout()
 
-    brand = _find_component(layout, "sidebar-brand")
-    sidebar_logo = _find_component(layout, "sidebar-logo")
+    brand = _find_component(layout, "header-brand")
+    header_logo = _find_component(layout, "header-logo")
     footer = _find_component(layout, "app-footer")
     footer_logo = _find_component(layout, "footer-logo")
     main = _find_component(layout, "main-content")
@@ -223,9 +223,9 @@ def test_layout_contains_fluxo_branding_and_legal_footer() -> None:
     assert brand is not None
     assert brand.href == "/"
     assert brand.children[1].children == "Private Solardatenbank"
-    assert sidebar_logo is not None
-    assert sidebar_logo.src == "/static/img/logo-fluxo_io.svg"
-    assert sidebar_logo.alt == "fluxo.io"
+    assert header_logo is not None
+    assert header_logo.src == "/static/img/logo-fluxo_io.svg"
+    assert header_logo.alt == "fluxo.io"
     assert footer is not None
     assert footer.children[0].children[1].children == (
         f"© {date.today().year} fluxo.io · Private Solardatenbank"
