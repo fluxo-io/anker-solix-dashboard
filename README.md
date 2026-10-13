@@ -15,6 +15,7 @@ Dockerfile               Laufzeit- und Testziele
 compose.yaml             gemeinsame Dienste
 compose.local.yaml       lokaler HTTP-Betrieb
 compose.webserver.yaml   HTTPS über Reverse Proxy
+compose.override.yaml    Webserver-Standard (Link)
 .env.example             Konfigurationsvorlage
 data/db/app.sqlite3      Messwerte, Benutzer und Anmeldeversuche
 data/collector/authcache/ Anker-Anmeldecache
@@ -31,7 +32,7 @@ Es gibt keinen Kopier-, Import- oder Exportablauf. Ein leerer Datenordner wird
 beim ersten Start initialisiert; neue Messwerte kommen ab dann vom Collector.
 Alte PostgreSQL-Volumes und vorhandene Sicherungen werden nicht verändert.
 
-## Lokal starten
+## Einrichtung
 
 ```bash
 cp .env.example .env
@@ -46,12 +47,6 @@ Alternativ kann `INIT_ADMIN_PASSWORD_HASH` einen vorhandenen sicheren
 Scrypt-/PBKDF2-Hash für den ersten Benutzer enthalten. Ein gesetztes
 Klartextpasswort hat Vorrang. Init-Werte ändern einen vorhandenen Benutzer nicht.
 
-```bash
-docker compose -f compose.yaml -f compose.local.yaml config --quiet
-docker compose -f compose.yaml -f compose.local.yaml up -d --build --remove-orphans --wait
-```
-
-Dashboard: <http://127.0.0.1:8501>. `PORT` ändert den lokalen Port.
 `DATA_DIR` wählt den Host-Datenordner, standardmäßig `./data`.
 
 Die Container bereiten ausschließlich ihren eigenen Daten-Unterordner vor und
@@ -59,17 +54,29 @@ starten danach die Anwendung mit UID/GID 1000. Dadurch funktionieren auch beim
 Start neu angelegte Bind-Mounts. `data/` darf keine symbolischen Links enthalten.
 `.env`, `data/` und `backups/` sind von Git und Docker-Builds ausgeschlossen.
 
-## Webserver
+## Start (Webserver)
 
 ```bash
-docker compose -f compose.yaml -f compose.webserver.yaml config --quiet
-docker compose -f compose.yaml -f compose.webserver.yaml up -d --build --remove-orphans --wait
+docker compose config --quiet
+docker compose up --build -d
 ```
+
+Dashboard: <https://kraftwerk.fluxo.io>. `compose.override.yaml` lädt automatisch
+die Webserver-Konfiguration.
 
 Das externe Netz `REVERSE_PROXY_NETWORK` muss bestehen. Der Proxy erreicht den
 Webdienst über `kraftwerk-web:8000`. `CANONICAL_ORIGIN` ist standardmäßig
 `https://kraftwerk.fluxo.io`; das Overlay aktiviert sichere Cookies und vertraut
 genau einem vorgeschalteten Proxy. API und SQLite erhalten keinen Host-Port.
+
+## Lokal starten
+
+```bash
+docker compose -f compose.yaml -f compose.local.yaml config --quiet
+docker compose -f compose.yaml -f compose.local.yaml up --build -d
+```
+
+Dashboard: <http://127.0.0.1:8501>. `PORT` ändert den lokalen Port.
 
 ## Konfiguration
 
@@ -95,10 +102,10 @@ veraltete und gültige Werte.
 ## Prüfen und betreiben
 
 ```bash
-docker compose --profile test build web-tests api-tests collector-tests
-docker compose --profile test run --rm --no-deps web-tests
-docker compose --profile test run --rm --no-deps api-tests
-docker compose --profile test run --rm --no-deps collector-tests
+docker compose -f compose.yaml --profile test build web-tests api-tests collector-tests
+docker compose -f compose.yaml --profile test run --rm --no-deps web-tests
+docker compose -f compose.yaml --profile test run --rm --no-deps api-tests
+docker compose -f compose.yaml --profile test run --rm --no-deps collector-tests
 
 docker compose ps
 docker compose logs --tail=100 collector
