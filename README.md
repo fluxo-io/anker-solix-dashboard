@@ -30,7 +30,7 @@ für Web, `COLLECTOR_API_TOKEN` für den Collector. Nur die API öffnet SQLite.
 
 `data/` wird vom Docker-Host direkt eingebunden. Host und Container arbeiten auf
 denselben Dateien, Änderungen bleiben auch nach Neubau und Neustart erhalten.
-Es gibt keinen Kopier-, Import- oder Exportablauf. Ein leerer Datenordner wird
+Es gibt keine automatische Datenübernahme. Ein leerer Datenordner wird
 beim ersten Start initialisiert; neue Messwerte kommen ab dann vom Collector.
 Alte PostgreSQL-Volumes und vorhandene Sicherungen werden nicht verändert.
 
@@ -103,6 +103,91 @@ DELETE-Journal. Zeitpunkte werden in UTC gespeichert. Wiederholte Messungen
 ersetzen vorhandene Zeitblöcke kontrolliert, ohne gültige durch ungültige Werte
 zu überschreiben. Diagramme und Energieberechnung unterscheiden fehlende,
 veraltete und gültige Werte.
+
+## Hostdateien und Backups
+
+Die vollständige Datenablage liegt auf dem Webserver-Dateisystem und ist für
+berechtigte SSH-/SFTP-Konten sowie Dateibackups erreichbar. Der vorhandene
+`DATA_DIR` und die beiden Unterordner bleiben unverändert. Es wird kein
+HTTP-Dateizugriff auf Datenbanken oder Anmeldecaches eingerichtet.
+
+| Bestand | Hostpfad | Snapshotpfad |
+| --- | --- | --- |
+| SQLite einschließlich möglicher Journale | `${DATA_DIR}/db` (Standard `./data/db`) | `sources/database/` |
+| Vollständiger Collectorbestand einschließlich Anker-Anmeldecache und weiterer Dateien | `${DATA_DIR}/collector` (Standard `./data/collector`) | `sources/collector/` |
+
+Der Collector verwendet `/data` auch für seine persistente temporäre Ablage;
+deshalb wird der gesamte Ordner gesichert. Sein Heartbeat in `/tmp` ist flüchtig
+und wird beim Start neu erzeugt. Die Browser-Sitzung liegt im signierten Cookie.
+
+API und Collector verwenden UID/GID 1000:1000, private Dateien sind 0600.
+Der Betreiber benötigt passende Eigentümer-/Gruppenrechte, gezielte ACLs oder
+administrative Rechte für SSH/SFTP und Backups. Keine pauschale Freigabe für
+alle Benutzer. Die Stoppreihenfolge lautet `collector` → `web` → `api`; die
+vorhandene dreiminütige Collector-Stopfrist bleibt wirksam.
+
+
+### Konsistente Dateisicherung
+
+`file-backup.json` erfasst die vollständigen persistenten Mounts. Das gemeinsame
+stdlib-Werkzeug läuft mit Python 3.10+ und Docker Compose auf dem Docker-Host.
+`inventory` zeigt die aufgelösten Hostpfade, keine ENV-Inhalte. Profil,
+`--env-file` und gegebenenfalls `--project-name` müssen dem laufenden Deployment
+entsprechen. Vorhandene Container-Mounts werden mit Compose abgeglichen; ein
+abweichender alter Datenpfad oder ein noch genutztes Volume führt zum Abbruch.
+
+```sh
+python3 scripts/file_backup.py --profile webserver --env-file .env inventory
+python3 scripts/file_backup.py --profile webserver --env-file .env create --output ./backups --stop-services
+python3 scripts/file_backup.py verify ./backups/backup-DATUM-ID
+mkdir -p ./restores
+python3 scripts/file_backup.py restore ./backups/backup-DATUM-ID ./restores/probe
+```
+
+Für lokale Installationen `--profile local` verwenden. `--stop-services` hält die
+zuvor laufenden Projektdienste in der festgelegten Reihenfolge an und startet nur
+diese bestehenden Container anschließend wieder, auch bei Fehlern oder SIGINT/
+SIGTERM. Dabei werden keine Container neu erstellt. Ohne das Flag müssen alle
+schreibenden Container bereits gestoppt sein. Andere Container, die denselben
+Hostpfad schreibend nutzen, blockieren die Sicherung. Externe Dateischreiber wie
+SFTP-Uploads, Synchronisierung und administrative Skripte müssen ebenfalls für
+die gesamte Sicherung pausieren; erkannte Dateiänderungen verwerfen den Snapshot.
+
+SQLite, JSON und sämtliche weiteren Dateien werden gemeinsam im Stillstand
+kopiert. SQLite wird ausschließlich in der privaten Kopie geprüft und über die
+SQLite-Backup-Schnittstelle normalisiert; vorhandene Journale/WAL gehen in die
+fertige Datenbank ein. Quelldatenbanken werden nie durch SQLite geöffnet oder
+verändert. Symlinks, Spezialdateien, fehlende Datenbanken und nicht erfasste
+Runtime-Mounts führen zum Abbruch. Ein laufendes Datenverzeichnis direkt zu
+kopieren ist keine konsistente Sicherung.
+
+Ein vollständiger Snapshot enthält `sources/`, die gewählte `.env` unter
+`configuration/env`, Basis- und ausgewähltes Compose-Overlay sowie das Profil.
+`manifest.json` enthält Prüfsummen, ursprüngliche Hostpfade, UID/GID und Rechte;
+`COMPLETE` bestätigt den geprüften Abschluss. Snapshot und Restore gehören dem
+ausführenden Operator (Ordner 0700, Dateien 0600), Originalrechte bleiben
+Metadaten. Sicherungen enthalten Zugangsdaten und sind vertraulich.
+
+`verify` und `restore` benötigen weder Docker noch ENV-Dateien. Restore schreibt
+ausschließlich in ein neues Ziel und überschreibt keine Installation. Vor einer
+bewussten Übernahme die isolierten Daten prüfen, Dienste anhalten und die
+Runtime-Rechte setzen: Datenablagen gehören UID/GID 1000:1000; SQLite-Dateien
+bleiben 0600. Originaldaten und bisherige Sicherung bis zur erfolgreichen
+Wiederanlaufprüfung erhalten. Die Dateien aus `configuration/` sind geschützte
+Wiederherstellungskopien; Versionsstand und übrigen Deploymentcode separat sichern.
+
+Der Server-Backupjob muss abgeschlossene `backups/backup-*`-Ordner mit `COMPLETE`
+einschließen, temporäre `.file-*`-Ordner ausschließen und Kopien außerhalb dieses
+Servers aufbewahren. Hier ist kein periodischer Job eingerichtet. Die tatsächliche
+Einbindung, Aufbewahrung und ein regelmäßiger isolierter Restoretest werden in
+der Serverkonfiguration festgelegt. Backup- und Restoreordner sind von Git und
+Docker-Builds ausgeschlossen.
+
+Toolprüfung ausschließlich mit synthetischen Daten:
+
+```sh
+python3 -m unittest discover -s tests/backup -v
+```
 
 ## Prüfen und betreiben
 

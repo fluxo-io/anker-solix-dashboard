@@ -15,3 +15,10 @@
 **/.npmrc
 **/__pycache__/
 **/*.pyc
+
+# Protected file snapshots and isolated recovery
+backups/
+restores/
+.file-backup-*/
+.file-restore-*/
+.file-migrate-*/

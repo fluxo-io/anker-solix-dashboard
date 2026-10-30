@@ -15,3 +15,10 @@ backups/
 
 frontend/node_modules/
 web/src/solarbank_dashboard/static/dist/
+
+# Protected file snapshots and isolated recovery
+backups/
+restores/
+.file-backup-*/
+.file-restore-*/
+.file-migrate-*/
