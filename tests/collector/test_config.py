@@ -4,7 +4,7 @@ from solarbank_collector.config import ConfigurationError, Settings
 REQUIRED = {
     "ANKER_USERNAME": "owner@example.com",
     "ANKER_PASSWORD": "secret",
-    "API_TOKEN": "t" * 32,
+    "COLLECTOR_API_TOKEN": "c" * 32,
 }
 
 
@@ -64,3 +64,17 @@ def test_missing_secret_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ConfigurationError, match="ANKER_PASSWORD"):
         Settings.from_environment()
+
+
+def test_collector_requires_own_key_without_web_fallback(monkeypatch):
+    _environment(monkeypatch)
+    monkeypatch.delenv("COLLECTOR_API_TOKEN")
+    monkeypatch.setenv("API_TOKEN", "t" * 32)
+    with pytest.raises(ConfigurationError, match="COLLECTOR_API_TOKEN"):
+        Settings.from_environment()
+
+
+def test_collector_uses_only_its_own_key(monkeypatch):
+    _environment(monkeypatch)
+    monkeypatch.setenv("API_TOKEN", "t" * 32)
+    assert Settings.from_environment().api_token == "c" * 32

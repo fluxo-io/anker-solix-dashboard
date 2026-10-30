@@ -8,12 +8,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from werkzeug.security import generate_password_hash
-
 from solarbank_api.app import create_app
 from solarbank_api.config import Settings
+from werkzeug.security import generate_password_hash
 
 TOKEN = "test-api-token-" + "t" * 32
+COLLECTOR_TOKEN = "test-collector-token-" + "c" * 32
+COLLECTOR_HEADERS = {"Authorization": f"Bearer {COLLECTOR_TOKEN}"}
 PASSWORD = "test-password-12345"
 HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 START = "2026-10-13T10:00:00+00:00"
@@ -25,6 +26,7 @@ def settings(tmp_path):
     return Settings(
         db_path=tmp_path / "data" / "app.sqlite3",
         api_token=TOKEN,
+        collector_api_token=COLLECTOR_TOKEN,
         secret_key="test-secret-" + "s" * 32,
         admin_username="admin",
         admin_password=PASSWORD,
@@ -61,7 +63,9 @@ def row(**values):
 
 
 def save(client, *rows):
-    return client.post("/v1/measurements", headers=HEADERS, json={"rows": rows})
+    return client.post(
+        "/v1/measurements", headers=COLLECTOR_HEADERS, json={"rows": rows}
+    )
 
 
 def measurements(client, **query):
@@ -242,7 +246,9 @@ def test_invalid_batch_does_not_save_any_rows(client, bad):
 def test_collector_status_failure_invalid_and_valid_success(client):
     assert (
         client.post(
-            "/v1/collector/attempt", headers=HEADERS, json={"attempted_at": START}
+            "/v1/collector/attempt",
+            headers=COLLECTOR_HEADERS,
+            json={"attempted_at": START},
         ).status_code
         == 200
     )
@@ -250,7 +256,7 @@ def test_collector_status_failure_invalid_and_valid_success(client):
         assert (
             client.post(
                 "/v1/collector/failure",
-                headers=HEADERS,
+                headers=COLLECTOR_HEADERS,
                 json={"error": "source unavailable"},
             ).status_code
             == 200
@@ -504,3 +510,78 @@ def test_missing_database_is_not_recreated_by_requests(client, settings):
     assert not settings.db_path.exists()
     assert save(client, row()).status_code == 503
     assert not settings.db_path.exists()
+
+
+@pytest.mark.parametrize(
+    "path,payload",
+    [
+        ("/v1/measurements", {"rows": [row()]}),
+        ("/v1/collector/attempt", {"attempted_at": START}),
+        ("/v1/collector/failure", {"error": "not allowed"}),
+    ],
+)
+def test_web_actor_cannot_mutate_collector_data(client, path, payload):
+    before = client.get("/v1/collector-state", headers=HEADERS).json
+    response = client.post(path, headers=HEADERS, json=payload)
+    assert response.status_code == 403
+    assert response.json["error"]["code"] == "forbidden"
+    assert measurements(client).json == {"rows": []}
+    assert client.get("/v1/collector-state", headers=HEADERS).json == before
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("GET", "/v1/devices"),
+        ("GET", "/v1/measurements/latest"),
+        ("GET", "/v1/snapshot"),
+        ("GET", "/v1/collector-state"),
+        ("POST", "/v1/auth/login"),
+        ("POST", "/v1/auth/session"),
+    ],
+)
+def test_collector_actor_cannot_read_private_data_or_authenticate(client, method, path):
+    assert (
+        client.open(path, method=method, headers=COLLECTOR_HEADERS, json={}).status_code
+        == 403
+    )
+
+
+def test_new_routes_receive_no_implicit_service_authority(app):
+    app.add_url_rule(
+        "/v1/new-mutation", "new_mutation", lambda: {"ok": True}, methods=["POST"]
+    )
+    for headers in (HEADERS, COLLECTOR_HEADERS):
+        assert (
+            app.test_client().post("/v1/new-mutation", headers=headers).status_code
+            == 403
+        )
+
+
+def test_collector_readiness_verifies_actor_without_mutation(client):
+    before = client.get("/v1/collector-state", headers=HEADERS).json
+    assert client.get("/v1/collector/ready").status_code == 401
+    assert client.get("/v1/collector/ready", headers=HEADERS).status_code == 403
+    assert client.get("/v1/collector/ready", headers=COLLECTOR_HEADERS).json == {
+        "status": "ok"
+    }
+    assert client.get("/v1/collector-state", headers=HEADERS).json == before
+
+
+def test_legacy_api_token_never_becomes_write_fallback(settings):
+    client = create_app(replace(settings, collector_api_token="")).test_client()
+    assert client.get("/v1/devices", headers=HEADERS).status_code == 200
+    assert login(client).status_code == 200
+    assert (
+        client.post(
+            "/v1/measurements", headers=HEADERS, json={"rows": [row()]}
+        ).status_code
+        == 403
+    )
+    assert save(client, row()).status_code == 401
+
+
+@pytest.mark.parametrize("token", [TOKEN, "short", "c" * 32 + " "])
+def test_invalid_or_shared_collector_key_fails_startup(settings, token):
+    with pytest.raises(ValueError, match="COLLECTOR_API_TOKEN"):
+        replace(settings, collector_api_token=token)

@@ -9,19 +9,19 @@
       <p>Geschützter Bereich</p>
     </div>
     {% if notice %}
-      <div class="form-notice" data-toast-message data-toast-type="info" data-toast-remove>
+      <div class="form-notice" data-fluxo-notice data-level="info">
         <span data-toast-text>{{ notice }}</span>
       </div>
     {% endif %}
-    {% if message %}<p id="login-error" class="form-error" role="alert">{{ message }}</p>{% endif %}
+    {% if message %}<p id="login-error" class="form-error" data-fluxo-notice data-level="error">{{ message }}</p>{% endif %}
     <form method="post" action="{{ url_for('solarbank_auth_login') }}">
       {{ form.csrf_token }}
       <div class="form-field form-floating">
-        {{ form.username(class_='form-control', placeholder='Benutzername', autocomplete='username', autofocus=true, aria_invalid='true' if message else false, aria_describedby='login-error' if message else false) }}
+        {{ form.username(class_='form-control', placeholder='Benutzername', autocomplete='username', autofocus=true, aria_invalid='true' if message else false) }}
         <label for="username">Benutzername</label>
       </div>
       <div class="form-field form-floating">
-        {{ form.password(class_='form-control', placeholder='Passwort', autocomplete='current-password', aria_invalid='true' if message else false, aria_describedby='login-error' if message else false) }}
+        {{ form.password(class_='form-control', placeholder='Passwort', autocomplete='current-password', aria_invalid='true' if message else false) }}
         <label for="password">Passwort</label>
       </div>
       {{ form.submit(class_='primary-button') }}

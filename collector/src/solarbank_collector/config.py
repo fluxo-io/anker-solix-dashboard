@@ -71,10 +71,10 @@ def _api_url() -> str:
 
 
 def _api_token() -> str:
-    value = _secret("API_TOKEN")
+    value = _secret("COLLECTOR_API_TOKEN")
     if len(value) < 32 or any(c.isspace() for c in value):
         raise ConfigurationError(
-            "API_TOKEN benötigt mindestens 32 Zeichen ohne Leerzeichen"
+            "COLLECTOR_API_TOKEN benötigt mindestens 32 Zeichen ohne Leerzeichen"
         )
     return value
 

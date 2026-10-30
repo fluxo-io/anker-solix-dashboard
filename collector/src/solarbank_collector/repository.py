@@ -53,12 +53,21 @@ class MeasurementRepository:
             ) as response:
                 if response.status != 200:
                     raise RuntimeError(f"API nicht verfügbar (HTTP {response.status})")
-                return await response.json()
+                # Collector acknowledgements/health never need a large body.
+                raw = bytearray()
+                async for chunk in response.content.iter_chunked(65536):
+                    raw.extend(chunk)
+                    if len(raw) > 1024 * 1024:
+                        raise RuntimeError("API-Antwort ist zu groß")
+                result = json.loads(raw)
+                if not isinstance(result, dict):
+                    raise RuntimeError("API-Antwort ist ungültig")
+                return result
         except (HTTPException, ClientError, TimeoutError, ValueError):
             raise RuntimeError("API nicht verfügbar") from None
 
     async def verify_schema(self) -> None:
-        if (await self._request("/healthz")).get("status") != "ok":
+        if (await self._request("/v1/collector/ready")).get("status") != "ok":
             raise RuntimeError("API nicht bereit")
 
     async def mark_attempt(self, attempted_at: datetime) -> None:

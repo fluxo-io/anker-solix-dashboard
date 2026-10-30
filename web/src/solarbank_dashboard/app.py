@@ -12,9 +12,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import dash_ag_grid as dag
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, dcc, html
-from flask import jsonify
+from dash import Dash, Input, Output, State, ctx, dcc, html
+from flask import Flask, current_app, has_app_context, has_request_context, jsonify
 
+from solarbank_dashboard.assets import install_assets
 from solarbank_dashboard.auth import AuthSettings, configure_auth
 from solarbank_dashboard.charts import aggregate_measurements, line_figure
 from solarbank_dashboard.config import ConfigurationError, Settings
@@ -129,8 +130,17 @@ GRID_COLUMNS = [
 
 
 @lru_cache(maxsize=1)
-def settings() -> Settings:
+def _environment_settings() -> Settings:
     return Settings.from_environment()
+
+
+def settings() -> Settings:
+    if has_app_context() and "solarbank_settings" in current_app.extensions:
+        return current_app.extensions["solarbank_settings"]
+    return _environment_settings()
+
+
+settings.cache_clear = _environment_settings.cache_clear
 
 
 def german_number(value: float, decimals: int = 0) -> str:
@@ -162,11 +172,11 @@ def format_timestamp(value: datetime | None, config: Settings) -> str:
 
 def toast_message(message: str, kind: str, event_id: int | None = None) -> Any:
     attributes: dict[str, str] = {
-        "data-toast-text": "",
-        "data-toast-type": kind,
+        "data-dashboard-notice": "",
+        "data-level": kind,
     }
     if event_id is not None:
-        attributes["data-toast-event"] = str(event_id)
+        attributes["data-event-id"] = str(event_id)
     return html.Span(message, **attributes)
 
 
@@ -1009,7 +1019,16 @@ def register_callbacks(dash_app: Dash) -> None:
             site_options, device_options = filter_options(devices, selected_sites)
         except (ConfigurationError, ApiError, RuntimeError):
             LOGGER.exception("Filter konnten nicht geladen werden")
-            return [], [], [], "Filter nicht verfügbar."
+            return (
+                [],
+                [],
+                [],
+                toast_message(
+                    "Filter konnten nicht geladen werden. Bitte erneut versuchen.",
+                    "error",
+                    f"filters:{_reloads}:{selected_sites}",
+                ),
+            )
         eligible_values = {option["value"] for option in device_options}
         retained = [
             value for value in selected_devices or [] if value in eligible_values
@@ -1087,11 +1106,15 @@ def register_callbacks(dash_app: Dash) -> None:
                 site_ids=tuple(sites or []),
                 devices=decode_devices(device_values),
             )
-        except ValueError as error:
+        except ValueError:
             return (
                 "Filter prüfen",
                 "status error",
-                str(error),
+                toast_message(
+                    "Bitte prüfe die gewählten Filter.",
+                    "error",
+                    f"filter-validation:{_reloads}:{period}:{start_value}:{end_value}:{device_values}",
+                ),
                 "message error",
                 "–",
                 "–",
@@ -1107,7 +1130,11 @@ def register_callbacks(dash_app: Dash) -> None:
             return (
                 "Daten nicht verfügbar",
                 "status error",
-                "Messwerte konnten nicht geladen werden.",
+                toast_message(
+                    "Messwerte konnten nicht geladen werden. Bitte erneut versuchen.",
+                    "error",
+                    f"measurements:{_reloads}:{period}:{sites}:{device_values}",
+                ),
                 "message error",
                 "–",
                 "–",
@@ -1119,6 +1146,14 @@ def register_callbacks(dash_app: Dash) -> None:
                 *extra,
             )
 
+        manual_refresh = has_request_context() and ctx.triggered_id == "reload-button"
+        refreshed = (
+            toast_message(
+                "Daten aktualisiert.", "success", f"reload-success:{_reloads}"
+            )
+            if manual_refresh
+            else None
+        )
         status_text, status_class, collector_warning = collector_status(state, config)
         source_text, source_class, source_details = freshness_view(latest_rows, config)
         if not rows:
@@ -1126,7 +1161,7 @@ def register_callbacks(dash_app: Dash) -> None:
             return (
                 status_text,
                 status_class,
-                message,
+                [html.Span(message), refreshed] if refreshed else message,
                 "message warning" if collector_warning else "message info",
                 "–",
                 "–",
@@ -1218,8 +1253,8 @@ def register_callbacks(dash_app: Dash) -> None:
         return (
             status_text,
             status_class,
-            message,
-            message_class,
+            [html.Span(message), refreshed] if refreshed else message,
+            "message" if refreshed and not warnings else message_class,
             format_power(latest_value(aggregated, "pv_total_w")),
             ("–" if state_of_charge is None else f"{german_number(state_of_charge)} %"),
             format_power(latest_value(aggregated, "home_load_w")),
@@ -1254,22 +1289,41 @@ def register_callbacks(dash_app: Dash) -> None:
                 device_sn=row["device_sn"],
             )
             if snapshot is None:
-                return "Messwert nicht mehr verfügbar."
+                return toast_message(
+                    "Messwert ist nicht mehr verfügbar.",
+                    "warning",
+                    f"snapshot-missing:{row}",
+                )
             return snapshot_view(snapshot, config)
         except (KeyError, TypeError, ValueError, ConfigurationError, ApiError):
             LOGGER.exception("Messwertdetails konnten nicht geladen werden")
-            return "Details nicht verfügbar."
+            return toast_message(
+                "Details konnten nicht geladen werden. Bitte erneut versuchen.",
+                "error",
+                f"snapshot-error:{selected}",
+            )
 
 
-def create_app() -> Dash:
-    auth_config = AuthSettings.from_environment()
+def create_app(
+    config: Settings | None = None,
+    *,
+    auth_config: AuthSettings | None = None,
+    api_client=None,
+) -> Dash:
+    """Create an independent dashboard; injected clients need no live API."""
+    config = config or Settings.from_environment()
+    auth_config = auth_config or AuthSettings.from_environment()
+    server = Flask(__name__)
+    manifest = install_assets(server)
     dash_app = Dash(
         __name__,
+        server=server,
+        include_assets_files=False,
         title=DASHBOARD_TITLE,
         update_title="Wird geladen …",
         assets_folder=str(ASSETS_FOLDER),
-        external_scripts=["/static/toasts.js"],
-        external_stylesheets=["/static/toasts.css"],
+        external_scripts=["/static/dist/" + manifest["dashboard.js"]],
+        external_stylesheets=["/static/dist/" + manifest["dashboard.css"]],
         meta_tags=[
             {
                 "name": "description",
@@ -1278,6 +1332,9 @@ def create_app() -> Dash:
             {"name": "theme-color", "content": "#007aaf"},
         ],
     )
+    dash_app.server.extensions["solarbank_settings"] = config
+    if api_client is not None:
+        dash_app.server.extensions["solarbank_api_transport"] = api_client
     configure_auth(dash_app.server, auth_config)
     register_public_pages(dash_app.server)
 
@@ -1286,6 +1343,19 @@ def create_app() -> Dash:
 
     dash_app.layout = serve_layout
     register_callbacks(dash_app)
+    # These five callbacks only filter/read; new mutating callbacks require CSRF.
+    dash_app.server.extensions["solarbank_read_callbacks"] = frozenset(
+        key
+        for key, metadata in dash_app.callback_map.items()
+        if metadata.get("callback").__name__
+        in {
+            "toggle_auto_refresh",
+            "toggle_custom_range",
+            "update_filter_options",
+            "update_dashboard",
+            "show_snapshot",
+        }
+    )
 
     @dash_app.server.get("/healthz")
     def health() -> tuple[Any, int]:
@@ -1293,15 +1363,11 @@ def create_app() -> Dash:
             verify_schema(settings())
         except (ConfigurationError, ApiError, RuntimeError):
             LOGGER.warning("Dashboard nicht bereit", exc_info=True)
-            return jsonify(status="unhealthy"), 503
+            return jsonify(status="unavailable"), 503
         return jsonify(status="ok"), 200
 
     return dash_app
 
 
-app = create_app()
-server = app.server
-
-
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=False)
+    create_app().run(host="0.0.0.0", port=8000, debug=False)

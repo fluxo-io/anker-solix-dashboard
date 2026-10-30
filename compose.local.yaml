@@ -1,6 +1,6 @@
 services:
   web:
-    ports: !override
+    ports:
       - "127.0.0.1:${PORT:-8501}:8000"
     environment:
       SESSION_COOKIE_SECURE: "false"

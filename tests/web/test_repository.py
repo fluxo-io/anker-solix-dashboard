@@ -78,7 +78,7 @@ def test_incomplete_http_response_becomes_api_error(monkeypatch):
         def __exit__(self, *args):
             pass
 
-        def read(self):
+        def read(self, _size=-1):
             raise IncompleteRead(b'{"rows":', 100)
 
     class Opener:

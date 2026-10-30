@@ -1,34 +1,9 @@
-@font-face {
-  font-family: "Open Sans";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/static/fonts/open-sans-v18-latin-regular.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Anonymous Pro";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/static/fonts/anonymous-pro-v14-latin-regular.woff2") format("woff2");
-}
-
 :root {
   color-scheme: light;
-  --fluxo-primary: #007aaf;
-  --fluxo-primary-hover: #00628d;
-  --fluxo-ink: #0c4d6a;
-  --fluxo-text: #243746;
-  --fluxo-muted: #586c7b;
-  --fluxo-surface: #ffffff;
-  --fluxo-background: #f3f7fa;
-  --fluxo-soft: #e5f1f7;
-  --fluxo-line: #d5e2e9;
-  --font-body: "Open Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-heading: "Anonymous Pro", ui-monospace, monospace;
+  --font-body: var(--fluxo-font-body);
+  --font-heading: var(--fluxo-font-heading);
   --background: var(--fluxo-background);
-  --surface: #ffffff;
+  --surface: var(--fluxo-surface);
   --surface-muted: var(--fluxo-background);
   --border: var(--fluxo-line);
   --text: var(--fluxo-text);
@@ -42,9 +17,9 @@
   --accent-hover: var(--fluxo-primary-hover);
   --accent-soft: var(--fluxo-soft);
   --solar: #d79b22;
-  --danger: #a43d3d;
+  --danger: var(--fluxo-danger);
   --danger-soft: #f9e9e7;
-  --warning: #8a6112;
+  --warning: var(--fluxo-warning);
   --warning-soft: #fff3d4;
   --shadow: 0 4px 20px rgb(12 77 106 / 4.5%);
   --radius-large: 12px;
@@ -1074,3 +1049,10 @@ input:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Only JS-consumed event sources are hidden; React retains their ownership. */
+.notifications-ready [data-dashboard-notice],
+.notifications-ready .message:has(> [data-dashboard-notice]):not(:has(> span:not([data-dashboard-notice]))) { display: none; }
+
+/* Keep Plotly resize transitions inside their panel on small screens. */
+.dash-graph { max-width: 100%; overflow-x: auto; }

@@ -134,3 +134,43 @@ def test_saved_session_is_revalidated_and_fails_closed(monkeypatch):
     assert client.get("/").status_code == 503
     status = 401
     assert client.get("/").status_code == 302
+
+
+def test_mutating_routes_are_csrf_protected_by_default():
+    application = app()
+    application.add_url_rule(
+        "/new-action", "new_action", lambda: "changed", methods=["POST"]
+    )
+    assert application.test_client().post("/new-action").status_code == 400
+
+
+def test_session_expiry_is_absolute_and_logout_survives_api_loss(monkeypatch):
+    import time
+
+    monkeypatch.setattr(
+        "solarbank_dashboard.auth.request_api",
+        lambda *args, **kwargs: {"id": "reader", "username": "reader"},
+    )
+    client = app().test_client()
+    client.post(
+        "/login",
+        data={
+            "csrf_token": csrf(client.get("/login")),
+            "username": "reader",
+            "password": "synthetic-password",
+        },
+    )
+    token = csrf(client.get("/logout"))
+
+    def unavailable(*args, **kwargs):
+        raise ApiError(503)
+
+    monkeypatch.setattr("solarbank_dashboard.auth.request_api", unavailable)
+    assert client.post("/logout", data={"csrf_token": token}).status_code == 302
+    with client.session_transaction() as state:
+        assert "_user_id" not in state
+        state["_user_id"] = "reader"
+        state["authenticated_at"] = time.time() - 8 * 3600 - 1
+    assert client.get("/").status_code == 302
+    with client.session_transaction() as state:
+        assert "_user_id" not in state

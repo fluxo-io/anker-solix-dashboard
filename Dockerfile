@@ -1,3 +1,12 @@
+FROM node:22-bookworm-slim AS assets
+WORKDIR /build/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+COPY frontend/vendor ./vendor
+RUN npm ci --no-audit --no-fund
+COPY frontend/src ./src
+COPY frontend/webpack.config.cjs ./
+RUN npm run check && npm run build
+
 FROM python:3.13-slim@sha256:8d9d0b8bcf6506481eae4907c18f5e3e7902e629f5f6d684f9e7c32e85e3ddf0 AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/src HOME=/tmp TMPDIR=/tmp
 WORKDIR /app
@@ -29,11 +38,11 @@ FROM base AS web
 COPY web/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=fluxo:fluxo web/src/ ./src/
-COPY --chown=fluxo:fluxo web/assets/ ./assets/
+COPY --from=assets --chown=fluxo:fluxo /build/web/src/solarbank_dashboard/static/dist ./src/solarbank_dashboard/static/dist
 USER fluxo
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -m solarbank_dashboard.healthcheck
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "4", "--timeout", "60", "solarbank_dashboard.app:server"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "4", "--timeout", "60", "solarbank_dashboard.wsgi:server"]
 
 FROM web AS web-tests
 USER root

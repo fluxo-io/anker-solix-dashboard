@@ -9,6 +9,8 @@ from solarbank_collector.source import AnkerCloudSource
 
 def test_auth_cache_is_inside_configured_data_directory(tmp_path, monkeypatch):
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    # Model the non-writable installed package in the production image.
+    monkeypatch.setattr("anker_solix_api.session.os.access", lambda *args: False)
     settings = SimpleNamespace(
         api_request_timeout_seconds=90,
         anker_username="synthetic@example.invalid",

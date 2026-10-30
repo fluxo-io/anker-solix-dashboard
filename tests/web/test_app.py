@@ -181,9 +181,9 @@ def test_toast_message_uses_text_and_event_metadata() -> None:
     props = message.to_plotly_json()["props"]
 
     assert props["children"] == "CSV erstellt."
-    assert props["data-toast-text"] == ""
-    assert props["data-toast-type"] == "success"
-    assert props["data-toast-event"] == "3"
+    assert props["data-dashboard-notice"] == ""
+    assert props["data-level"] == "success"
+    assert props["data-event-id"] == "3"
 
 
 def test_layout_contains_enabled_auto_refresh() -> None:
@@ -283,9 +283,8 @@ def test_app_shell_has_no_database_dependency() -> None:
     assert response.status_code == 200
     assert dash_app.title == DASHBOARD_TITLE
     assert b"<title>Private Solardatenbank \xc2\xb7 fluxo.io</title>" in response.data
-    assert b"session-redirect.js" in response.data
-    assert b"/static/toasts.css" in response.data
-    assert b"/static/toasts.js" in response.data
+    assert dash_app.server.extensions["asset_manifest"]["dashboard.css"].encode() in response.data
+    assert dash_app.server.extensions["asset_manifest"]["dashboard.js"].encode() in response.data
     assert b'content="#007aaf"' in response.data
     assert len(dash_app.callback_map) == 5
     assert "auto-refresh-interval.disabled" in dash_app.callback_map
@@ -326,7 +325,7 @@ def test_health_fails_when_schema_is_unavailable(
     response = dash_app.server.test_client().get("/healthz")
 
     assert response.status_code == 503
-    assert response.get_json() == {"status": "unhealthy"}
+    assert response.get_json() == {"status": "unavailable"}
 
 
 @pytest.mark.parametrize("has_rows", [True, False])

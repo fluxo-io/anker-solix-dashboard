@@ -1,6 +1,5 @@
 services:
   web:
-    ports: !reset []
     environment:
       SESSION_COOKIE_SECURE: "true"
       CANONICAL_ORIGIN: ${CANONICAL_ORIGIN:-https://kraftwerk.fluxo.io}

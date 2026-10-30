@@ -1,6 +1,8 @@
 **
 !docker/
 !docker/**
+!frontend/
+!frontend/**
 !web/
 !web/**
 !api/

@@ -8,12 +8,9 @@ from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 PUBLIC_PAGE_PATHS = frozenset({"/datenschutz", "/impressum"})
 PUBLIC_STATIC_PATHS = frozenset(
     {
-        "/static/brand.css",
         "/static/fonts/anonymous-pro-v14-latin-regular.woff2",
         "/static/fonts/open-sans-v18-latin-regular.woff2",
         "/static/img/logo-fluxo_io.svg",
-        "/static/toasts.css",
-        "/static/toasts.js",
     }
 )
 
@@ -61,6 +58,9 @@ def register_public_pages(app: Flask) -> None:
 
     if app.extensions.get("solarbank_public_pages"):
         return
+    from .assets import install_assets
+    if "asset_manifest" not in app.extensions:
+        install_assets(app)
     app.register_blueprint(public_pages)
     app.register_error_handler(BadRequest, bad_request)
     app.register_error_handler(RequestEntityTooLarge, request_too_large)

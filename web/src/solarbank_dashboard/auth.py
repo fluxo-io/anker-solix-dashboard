@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -12,7 +13,9 @@ from flask import (
     Flask,
     Response,
     abort,
+    current_app,
     flash,
+    g,
     get_flashed_messages,
     jsonify,
     redirect,
@@ -22,6 +25,7 @@ from flask import (
     url_for,
 )
 from flask_login import (
+    AnonymousUserMixin,
     LoginManager,
     UserMixin,
     current_user,
@@ -29,7 +33,7 @@ from flask_login import (
     login_user,
     logout_user,
 )
-from flask_wtf import FlaskForm
+from flask_wtf import CSRFProtect, FlaskForm
 from werkzeug.middleware.proxy_fix import ProxyFix
 from wtforms import PasswordField, StringField, SubmitField
 from wtforms.validators import InputRequired, Length
@@ -128,6 +132,10 @@ def _login_response(form: LoginForm, message: str = "") -> str:
 def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
     if "solarbank_auth" in app.extensions:
         return app.extensions["solarbank_auth"]
+    from .assets import install_assets
+
+    if "asset_manifest" not in app.extensions:
+        install_assets(app)
     config = config or AuthSettings.from_environment()
     if config.trusted_hosts:
         app.config["TRUSTED_HOSTS"] = list(config.trusted_hosts)
@@ -181,6 +189,35 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
         SESSION_REFRESH_EACH_REQUEST=False,
         WTF_CSRF_TIME_LIMIT=config.session_hours * 3600,
     )
+    # Dash POST callbacks declared read-only by this factory are the only exemption.
+    app.config["WTF_CSRF_CHECK_DEFAULT"] = False
+    csrf = CSRFProtect(app)
+
+    @app.before_request
+    def browser_boundary():
+        if "_user_id" in session:
+            issued = session.get("authenticated_at")
+            if (
+                not isinstance(issued, (int, float))
+                or not 0 <= time.time() - issued < config.session_hours * 3600
+            ):
+                session.clear()
+                flash("Bitte erneut anmelden.", "notice")
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.endpoint:
+            payload = (
+                request.get_json(silent=True)
+                if request.path == "/_dash-update-component"
+                else None
+            )
+            if (
+                request.method == "POST"
+                and isinstance(payload, dict)
+                and payload.get("output")
+                in app.extensions.get("solarbank_read_callbacks", set())
+            ):
+                return None
+            csrf.protect()
+
     manager = LoginManager()
     manager.session_protection = "strong"
     manager.init_app(app)
@@ -191,7 +228,12 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
             return None
         try:
             user = request_api(
-                Settings.from_environment(), "/v1/auth/session", payload={"id": user_id}
+                (
+                    current_app.extensions.get("solarbank_settings")
+                    or Settings.from_environment()
+                ),
+                "/v1/auth/session",
+                payload={"id": user_id},
             )
         except ApiError as error:
             if error.status == 401:
@@ -201,6 +243,10 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
 
     @app.before_request
     def require_authentication() -> Response | None:
+        if request.path == "/logout":
+            return None
+        if request.path.startswith("/static/dist/"):
+            return None
         if request.path in {
             "/healthz",
             "/login",
@@ -237,7 +283,10 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
         ).hexdigest()
         try:
             user = request_api(
-                Settings.from_environment(),
+                (
+                    current_app.extensions.get("solarbank_settings")
+                    or Settings.from_environment()
+                ),
                 "/v1/auth/login",
                 payload={
                     "username": form.username.data,
@@ -261,6 +310,7 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
                 return response
             return _login_response(form, "Anmeldung nicht verfügbar."), 503
         session.clear()
+        session["authenticated_at"] = time.time()
         login_user(_DashboardUser(str(user["id"])), remember=False, fresh=True)
         session.permanent = True
         return redirect("/")
@@ -272,7 +322,8 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
             return render_template("logout.html", form=form)
         if not form.validate_on_submit():
             abort(400)
-        logout_user()
+        # Clear locally even when the API cannot revalidate the previous identity.
+        g._login_user = AnonymousUserMixin()
         session.clear()
         flash("Abgemeldet.", "notice")
         return redirect(url_for("solarbank_auth_login"))

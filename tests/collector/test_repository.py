@@ -46,7 +46,7 @@ def test_collector_http_round_trip():
                     raw_data={"device": {"temperature": 22, "seen_at": now}},
                 )
                 await repository.save([Measurement(**values)])
-            assert calls[0] == ("/healthz", None)
+            assert calls[0] == ("/v1/collector/ready", None)
             assert calls[1] == (
                 "/v1/collector/attempt",
                 {"attempted_at": now.isoformat()},
@@ -57,6 +57,34 @@ def test_collector_http_round_trip():
             assert calls[3][1]["rows"][0]["raw_data"] == {
                 "device": {"temperature": 22, "seen_at": str(now)}
             }
+        finally:
+            await runner.cleanup()
+
+    asyncio.run(exercise())
+
+
+def test_collector_rejects_oversized_response_before_decoding():
+    import pytest
+
+    async def exercise():
+        async def handle(request):
+            return web.Response(body=b" " * (1024 * 1024 + 1))
+
+        application = web.Application()
+        application.router.add_get("/v1/collector/ready", handle)
+        runner = web.AppRunner(application)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        settings = SimpleNamespace(
+            api_url=f"http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}",
+            api_token="t" * 32,
+            api_timeout_seconds=5,
+        )
+        try:
+            with pytest.raises(RuntimeError, match="zu groß"):
+                async with MeasurementRepository(settings):
+                    pytest.fail("Oversized response was accepted")
         finally:
             await runner.cleanup()
 

@@ -1,0 +1,28 @@
+{
+  "standard": "fluxo-webapp/1.0",
+  "architecture": "web-api-data",
+  "api": {
+    "provisioning": "managed"
+  },
+  "interface": "dash",
+  "theme": "fluxo",
+  "backgroundWorker": true,
+  "data": {
+    "businessOwner": "api",
+    "businessStorage": "sqlite",
+    "technicalStorage": [
+      {
+        "owner": "collector",
+        "purpose": "collector-state",
+        "storage": "files"
+      },
+      {
+        "owner": "web",
+        "purpose": "session",
+        "storage": "cookie"
+      }
+    ]
+  },
+  "notifications": "fluxo-notifications/1.0",
+  "exceptions": []
+}

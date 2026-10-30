@@ -47,6 +47,7 @@ class Settings:
     admin_username: str = ""
     admin_password: str = field(default="", repr=False)
     admin_password_hash: str = field(default="", repr=False)
+    collector_api_token: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
         if not self.db_path.is_absolute():
@@ -55,6 +56,18 @@ class Settings:
             raise ValueError("API_TOKEN muss mindestens 32 Zeichen lang sein")
         if any(character.isspace() for character in self.api_token):
             raise ValueError("API_TOKEN darf keine Leerzeichen enthalten")
+        if self.collector_api_token:
+            if len(self.collector_api_token.encode()) < 32 or any(
+                character.isspace() for character in self.collector_api_token
+            ):
+                raise ValueError(
+                    "COLLECTOR_API_TOKEN benötigt mindestens 32 Zeichen "
+                    "ohne Leerzeichen"
+                )
+            if self.collector_api_token == self.api_token:
+                raise ValueError(
+                    "COLLECTOR_API_TOKEN und API_TOKEN müssen verschieden sein"
+                )
         if len(self.secret_key.encode()) < 32 or not self.secret_key.strip():
             raise ValueError("SECRET_KEY muss mindestens 32 Zeichen lang sein")
         if self.admin_username and (
@@ -76,6 +89,7 @@ class Settings:
         return cls(
             db_path=Path(os.getenv("DATA_DIR", "/data")) / "app.sqlite3",
             api_token=os.getenv("API_TOKEN", ""),
+            collector_api_token=os.getenv("COLLECTOR_API_TOKEN", ""),
             secret_key=os.getenv("SECRET_KEY", ""),
             admin_username=os.getenv("INIT_ADMIN_USERNAME", "").strip(),
             admin_password=os.getenv("INIT_ADMIN_PASSWORD", ""),

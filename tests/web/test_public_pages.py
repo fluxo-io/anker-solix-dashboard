@@ -88,9 +88,8 @@ def test_login_and_logout_share_public_fluxo_layout(
 
     assert login.status_code == 200
     assert b"logo-fluxo_io.svg" in login.data
-    assert b"brand.css" in login.data
-    assert b"toasts.css" in login.data
-    assert b'<script defer src="/static/toasts.js"></script>' in login.data
+    assert re.search(rb"/static/dist/public\.[a-f0-9]+\.css", login.data)
+    assert re.search(rb"/static/dist/public\.[a-f0-9]+\.js", login.data)
     assert b'<p class="eyebrow">FLUXO.IO</p>' in login.data
     assert b">Solarbank Dashboard</h1>" in login.data
     assert "Geschützter Bereich" in login.get_data(as_text=True)
@@ -127,14 +126,13 @@ def test_login_and_logout_share_public_fluxo_layout(
     assert confirmed_logout.status_code == 302
     login_after_logout = client.get(confirmed_logout.location)
     assert b"Abgemeldet." in login_after_logout.data
-    assert b"data-toast-message" in login_after_logout.data
-    assert b'data-toast-type="info"' in login_after_logout.data
+    assert b"data-fluxo-notice" in login_after_logout.data
+    assert b'data-level="info"' in login_after_logout.data
     assert b"data-toast-text" in login_after_logout.data
-    assert b"data-toast-remove" in login_after_logout.data
     assert b"Abgemeldet." not in client.get("/login").data
 
 
-def test_login_error_is_bound_to_both_fields(tmp_path: Path) -> None:
+def test_login_error_is_a_toast_without_dangling_field_references(tmp_path: Path) -> None:
     client = _app(tmp_path).test_client()
     login = client.get("/login")
 
@@ -149,7 +147,8 @@ def test_login_error_is_bound_to_both_fields(tmp_path: Path) -> None:
     body = response.get_data(as_text=True)
 
     assert 'id="login-error"' in body
-    assert body.count('aria-describedby="login-error"') == 2
+    assert 'data-fluxo-notice data-level="error"' in body
+    assert 'aria-describedby="login-error"' not in body
     assert body.count('aria-invalid="true"') == 2
 
 
@@ -186,7 +185,7 @@ def test_public_pages_use_restrictive_content_security_policy(tmp_path: Path) ->
     for path in ("/login", "/logout", "/impressum", "/datenschutz"):
         response = client.get(path)
         if path == "/logout":
-            assert response.status_code == 302
+            assert response.status_code == 200
             continue
         policy = response.headers["Content-Security-Policy"]
         assert "default-src 'none'" in policy

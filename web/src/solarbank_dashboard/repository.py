@@ -10,7 +10,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from flask import current_app, has_app_context
+
 from .config import Settings
+
+# Measurement responses can contain 100,000 rows; auth/health need much less.
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+SMALL_RESPONSE_BYTES = 1024 * 1024
 
 MAX_RANGE = timedelta(days=90, hours=2)
 MAX_ROWS = 100_000
@@ -36,6 +42,13 @@ def request_api(
     params: dict[str, Any] | None = None,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if (
+        has_app_context()
+        and current_app.extensions.get("solarbank_api_transport") is not None
+    ):
+        return current_app.extensions["solarbank_api_transport"](
+            settings, path, params=params, payload=payload
+        )
     url = settings.api_url + path
     if params:
         url += "?" + urlencode(params)
@@ -50,9 +63,22 @@ def request_api(
     request = Request(url, data=data, headers=headers)
     try:
         with build_opener(NoRedirect).open(
-            request, timeout=settings.api_timeout_seconds
+            request,
+            timeout=min(settings.api_timeout_seconds, 2)
+            if path == "/healthz"
+            else settings.api_timeout_seconds,
         ) as response:
-            result = json.load(response)
+            limit = (
+                MAX_RESPONSE_BYTES
+                if path.startswith("/v1/measurements") or path == "/v1/snapshot"
+                else SMALL_RESPONSE_BYTES
+            )
+            if path == "/healthz":
+                limit = min(limit, 16384)
+            raw = response.read(limit + 1)
+            if len(raw) > limit:
+                raise ApiError()
+            result = json.loads(raw)
     except HTTPError as error:
         raw_retry = error.headers.get("Retry-After", "60")
         retry_after = int(raw_retry) if raw_retry.isdigit() else 60

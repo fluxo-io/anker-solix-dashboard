@@ -29,6 +29,7 @@ services:
     environment:
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env}
+      COLLECTOR_API_TOKEN: ${COLLECTOR_API_TOKEN:?Set a separate COLLECTOR_API_TOKEN in .env}
       INIT_ADMIN_USERNAME: ${INIT_ADMIN_USERNAME:-admin}
       INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:-}
       INIT_ADMIN_PASSWORD_HASH: ${INIT_ADMIN_PASSWORD_HASH:-}
@@ -58,8 +59,6 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:${PORT:-8501}:8000"
     networks: [web, backend]
 
   collector:
@@ -71,7 +70,7 @@ services:
     cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID]
     environment:
       API_URL: http://api:8001
-      API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env}
+      COLLECTOR_API_TOKEN: ${COLLECTOR_API_TOKEN:?Set a separate COLLECTOR_API_TOKEN in .env}
       API_TIMEOUT_SECONDS: ${API_TIMEOUT_SECONDS:-5}
       ANKER_USERNAME: ${ANKER_USERNAME:?Set ANKER_USERNAME in .env}
       ANKER_PASSWORD: ${ANKER_PASSWORD:?Set ANKER_PASSWORD in .env}

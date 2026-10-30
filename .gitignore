@@ -12,3 +12,6 @@ data/
 backups/
 *.sqlite3*
 .venv/
+
+frontend/node_modules/
+web/src/solarbank_dashboard/static/dist/

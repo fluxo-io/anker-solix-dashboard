@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hmac
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, g, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 from .config import Settings
@@ -30,6 +32,7 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
         settings = Settings(
             db_path=Path(app.config.get("DATA_DIR", "/data")) / "app.sqlite3",
             api_token=app.config.get("API_TOKEN", ""),
+            collector_api_token=app.config.get("COLLECTOR_API_TOKEN", ""),
             secret_key=app.config.get("SECRET_KEY", ""),
             admin_username=app.config.get("INIT_ADMIN_USERNAME", "").strip(),
             admin_password=app.config.get("INIT_ADMIN_PASSWORD", ""),
@@ -46,16 +49,67 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
         if request.path == "/healthz" and request.method in {"GET", "HEAD"}:
             return None
         scheme, _, supplied = request.headers.get("Authorization", "").partition(" ")
-        if scheme.lower() != "bearer" or not hmac.compare_digest(
-            supplied.encode(), settings.api_token.encode()
-        ):
+        supplied_bytes = supplied.encode()
+        web = scheme.lower() == "bearer" and hmac.compare_digest(
+            supplied_bytes, settings.api_token.encode()
+        )
+        collector = (
+            scheme.lower() == "bearer"
+            and bool(settings.collector_api_token)
+            and hmac.compare_digest(
+                supplied_bytes, settings.collector_api_token.encode()
+            )
+        )
+        if not web and not collector:
             response = jsonify(error="Anmeldung erforderlich")
             response.headers["WWW-Authenticate"] = "Bearer"
             return response, 401
+        # Explicit service actors: new operations do not inherit authorization.
+        actor = "collector" if collector else "web"
+        allowed = {
+            "web": {
+                (method, endpoint)
+                for method in ("GET", "HEAD")
+                for endpoint in (
+                    "devices",
+                    "measurements",
+                    "latest",
+                    "snapshot",
+                    "collector_state",
+                )
+            }
+            | {("POST", "login"), ("POST", "validate_session")},
+            "collector": {
+                ("POST", "attempt"),
+                ("POST", "failure"),
+                ("POST", "save"),
+                ("GET", "collector_ready"),
+                ("HEAD", "collector_ready"),
+            },
+        }
+        if (request.method, request.endpoint) not in allowed[actor]:
+            return jsonify(error="Zugriff nicht erlaubt"), 403
+        g.service_actor = actor
         return None
 
     @app.after_request
     def response_headers(response: Response) -> Response:
+        if response.status_code >= 400 and response.is_json:
+            payload = response.get_json(silent=True)
+            if isinstance(payload, dict) and isinstance(payload.get("error"), str):
+                payload["error"] = {
+                    "code": {
+                        400: "invalid_request",
+                        401: "authentication_required",
+                        403: "forbidden",
+                        404: "not_found",
+                        429: "rate_limited",
+                        503: "unavailable",
+                    }.get(response.status_code, "request_failed"),
+                    "message": payload["error"],
+                }
+                payload["request_id"] = uuid4().hex
+                response.set_data(json.dumps(payload, ensure_ascii=False))
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
@@ -77,6 +131,11 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
     def health() -> tuple[Response, int]:
         ready = store.ready()
         return jsonify(status="ok" if ready else "unavailable"), 200 if ready else 503
+
+    @app.get("/v1/collector/ready")
+    def collector_ready() -> tuple[Response, int]:
+        # Checks the write actor before any source request or mutation is attempted.
+        return health()
 
     @app.get("/v1/devices")
     def devices() -> Response:

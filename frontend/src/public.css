@@ -1,38 +1,3 @@
-@font-face {
-  font-family: "Open Sans";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/static/fonts/open-sans-v18-latin-regular.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Anonymous Pro";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/static/fonts/anonymous-pro-v14-latin-regular.woff2") format("woff2");
-}
-
-:root {
-  color-scheme: light;
-  --fluxo-primary: #007aaf;
-  --fluxo-primary-hover: #00628d;
-  --fluxo-ink: #0c4d6a;
-  --fluxo-text: #243746;
-  --fluxo-muted: #586c7b;
-  --fluxo-surface: #ffffff;
-  --fluxo-background: #f3f7fa;
-  --fluxo-soft: #e5f1f7;
-  --fluxo-line: #d5e2e9;
-  --fluxo-danger: #9d2c2c;
-  --fluxo-radius: 0.75rem;
-  --fluxo-radius-control: 0.5rem;
-  --fluxo-shadow: 0 8px 30px rgba(12, 77, 106, 0.08);
-  --fluxo-font-body: "Open Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --fluxo-font-heading: "Anonymous Pro", ui-monospace, monospace;
-}
-
 * {
   box-sizing: border-box;
 }
@@ -186,7 +151,7 @@ input {
   border: 1px solid rgba(12, 77, 106, 0.2);
   border-radius: var(--fluxo-radius);
   border-top: 4px solid var(--fluxo-primary);
-  box-shadow: var(--fluxo-shadow);
+  box-shadow: var(--fluxo-card-shadow);
   padding: clamp(1.5rem, 4vw, 2rem);
   width: min(26rem, 100%);
 }

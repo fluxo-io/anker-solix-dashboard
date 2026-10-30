@@ -7,9 +7,8 @@
     <meta name="theme-color" content="#007aaf">
     <title>{% block title %}Private Solardatenbank{% endblock %}</title>
     <link rel="icon" href="{{ url_for('static', filename='img/logo-fluxo_io.svg') }}" type="image/svg+xml">
-    <link rel="stylesheet" href="{{ url_for('static', filename='brand.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='toasts.css') }}">
-    <script defer src="{{ url_for('static', filename='toasts.js') }}"></script>
+    <link rel="stylesheet" href="{{ asset('public.css') }}">
+    <script defer src="{{ asset('public.js') }}"></script>
   </head>
   <body class="public-shell">
     <a class="skip-link" href="#main-content">Zum Inhalt</a>
