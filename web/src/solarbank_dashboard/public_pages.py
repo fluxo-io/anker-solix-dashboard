@@ -6,7 +6,16 @@ from flask import Blueprint, Flask, render_template
 from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 
 PUBLIC_PAGE_PATHS = frozenset({"/datenschutz", "/impressum"})
-PUBLIC_STATIC_PATHS = frozenset(
+SHORTCUT_STATIC_PATHS = frozenset(
+    {
+        "/static/site.webmanifest",
+        "/static/icons/fluxo/1.0.0/apple-touch-icon.png",
+        "/static/icons/fluxo/1.0.0/icon-192.png",
+        "/static/icons/fluxo/1.0.0/icon-512.png",
+        "/static/icons/fluxo/1.0.0/icon-1024.png",
+    }
+)
+PUBLIC_STATIC_PATHS = SHORTCUT_STATIC_PATHS | frozenset(
     {
         "/static/fonts/anonymous-pro-v14-latin-regular.woff2",
         "/static/fonts/open-sans-v18-latin-regular.woff2",

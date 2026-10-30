@@ -39,7 +39,7 @@ from wtforms import PasswordField, StringField, SubmitField
 from wtforms.validators import InputRequired, Length
 
 from .config import ConfigurationError, Settings
-from .public_pages import PUBLIC_PAGE_PATHS, PUBLIC_STATIC_PATHS
+from .public_pages import PUBLIC_PAGE_PATHS, PUBLIC_STATIC_PATHS, SHORTCUT_STATIC_PATHS
 from .repository import ApiError, request_api
 
 
@@ -158,13 +158,15 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
         }
         policy = (
             "default-src 'none'; style-src 'self'; script-src 'self'; "
-            "img-src 'self'; font-src 'self'; form-action 'self'; "
+            "img-src 'self'; font-src 'self'; manifest-src 'self'; form-action 'self'; "
             "base-uri 'none'; frame-ancestors 'none'"
             if public
             else "frame-ancestors 'none'; object-src 'none'; "
             "base-uri 'self'; form-action 'self'"
         )
         response.headers.setdefault("Content-Security-Policy", policy)
+        if request.path == "/static/site.webmanifest" and response.status_code == 200:
+            response.mimetype = "application/manifest+json"
         if not request.path.startswith(("/static/", "/assets/")):
             response.headers.setdefault("Cache-Control", "no-store")
         if config.secure_cookie and request.is_secure:
@@ -195,6 +197,8 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
 
     @app.before_request
     def browser_boundary():
+        if request.path in SHORTCUT_STATIC_PATHS:
+            return None
         if "_user_id" in session:
             issued = session.get("authenticated_at")
             if (

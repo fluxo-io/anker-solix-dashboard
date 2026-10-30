@@ -13,7 +13,7 @@ import dash_ag_grid as dag
 import pandas as pd
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, ctx, dcc, html
-from flask import Flask, current_app, has_app_context, has_request_context, jsonify
+from flask import Flask, current_app, has_app_context, has_request_context, jsonify, render_template
 
 from solarbank_dashboard.assets import install_assets
 from solarbank_dashboard.auth import AuthSettings, configure_auth
@@ -1304,6 +1304,14 @@ def register_callbacks(dash_app: Dash) -> None:
             )
 
 
+class ShortcutDash(Dash):
+    """Share shortcut metadata with the public Jinja documents."""
+
+    def interpolate_index(self, **kwargs):
+        kwargs["favicon"] = kwargs.get("favicon", "") + render_template("shortcut_icons.html")
+        return super().interpolate_index(**kwargs)
+
+
 def create_app(
     config: Settings | None = None,
     *,
@@ -1315,7 +1323,7 @@ def create_app(
     auth_config = auth_config or AuthSettings.from_environment()
     server = Flask(__name__)
     manifest = install_assets(server)
-    dash_app = Dash(
+    dash_app = ShortcutDash(
         __name__,
         server=server,
         include_assets_files=False,

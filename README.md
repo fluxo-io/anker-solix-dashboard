@@ -265,3 +265,15 @@ ersetzt. Ein direkt gestarteter API-Dienst ohne Collectorschlüssel bleibt für 
 bisherigen Web-Lese-/Authaufrufe nutzbar, nimmt jedoch keine Collectoränderungen an.
 Ein alter Collector mit nur `API_TOKEN` erhält nach dem API-Upgrade keine
 Schreibberechtigung; es gibt absichtlich keinen vorübergehenden Schreibfallback.
+
+### Home-Screen- und Dock-Verknüpfungen
+
+Neue Verknüpfungen auf dem iPad und im Mac-Dock verwenden das gemeinsame blaue
+Fluxo-Icon. Dash sowie Anmelde-, Rechts- und Fehlerseiten binden dieselben
+Apple-Touch-Icons und `site.webmanifest` ein. Die festen PNGs liegen unter
+`web/src/solarbank_dashboard/static/icons/fluxo/1.0.0/`. Manifest und Icons sind
+auch ohne gültige Sitzung und ohne API-Aufruf erreichbar. Sie bleiben außerhalb
+des bereinigten `dist/`-Ordners und werden vom Docker-Webimage mitkopiert.
+Startadresse und Anzeigemodus werden nicht überschrieben. Bereits gespeicherte
+Verknüpfungen nach dem Deployment bei Bedarf löschen und neu anlegen, damit das
+Gerät sein zwischengespeichertes Icon ersetzt.
