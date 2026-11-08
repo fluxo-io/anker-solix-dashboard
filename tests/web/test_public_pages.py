@@ -97,7 +97,7 @@ def test_login_and_logout_share_public_fluxo_layout(
     assert b"Impressum" in login.data
     assert b"Datenschutz" in login.data
     assert b"<style" not in login.data
-    assert b'class="skip-link" href="#main-content"' in login.data
+    assert b'class="fluxo-skip-link skip-link" href="#main-content"' in login.data
     assert b'class="form-field form-floating"' in login.data
     assert b'placeholder="Benutzername"' in login.data
     assert b'placeholder="Passwort"' in login.data

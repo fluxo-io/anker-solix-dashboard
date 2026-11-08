@@ -51,7 +51,12 @@ def test_dash_and_public_documents_share_shortcut_metadata():
         touch = [link for link in links if link.get('rel') == 'apple-touch-icon']
         assert {link['sizes'] for link in touch} == {'180x180', '1024x1024'}
         assert [link['href'] for link in links if link.get('rel') == 'manifest'] == ['/static/site.webmanifest']
-        assert any('icon' in link.get('rel', '').split() for link in links)
+        icons = [link for link in links if link.get('rel') == 'icon']
+        assert icons == [{'rel': 'icon', 'href': '/static/img/logo-fluxo_io.svg', 'type': 'image/svg+xml'}]
+        icon = client.get(icons[0]['href'])
+        assert icon.status_code == 200 and icon.mimetype == 'image/svg+xml'
+        assert b'fluxo.io' in icon.data
+        assert b'/_favicon.ico' not in response.data
         for link in touch:
             response = client.get(link['href'], buffered=True)
             assert response.status_code == 200

@@ -6,13 +6,12 @@
     <meta name="description" content="Fluxo-Demoprojekt für private Anker-SOLIX-Daten.">
     <meta name="theme-color" content="#007aaf">
     <title>{% block title %}Private Solardatenbank{% endblock %}</title>
-    <link rel="icon" href="{{ url_for('static', filename='img/logo-fluxo_io.svg') }}" type="image/svg+xml">
     {% include 'shortcut_icons.html' %}
     <link rel="stylesheet" href="{{ asset('public.css') }}">
     <script defer src="{{ asset('public.js') }}"></script>
   </head>
   <body class="public-shell">
-    <a class="skip-link" href="#main-content">Zum Inhalt</a>
+    <a class="fluxo-skip-link skip-link" href="#main-content">Zum Inhalt</a>
     <header class="public-header">
       <a class="public-brand" href="/" aria-label="Private Solardatenbank">
         <img src="{{ url_for('static', filename='img/logo-fluxo_io.svg') }}" alt="fluxo.io">

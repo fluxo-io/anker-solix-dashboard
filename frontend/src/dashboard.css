@@ -18,13 +18,13 @@
   --accent-soft: var(--fluxo-soft);
   --solar: #d79b22;
   --danger: var(--fluxo-danger);
-  --danger-soft: #f9e9e7;
+  --danger-soft: var(--fluxo-danger-soft);
   --warning: var(--fluxo-warning);
-  --warning-soft: #fff3d4;
-  --shadow: 0 4px 20px rgb(12 77 106 / 4.5%);
-  --radius-large: 12px;
-  --radius-medium: 12px;
-  --radius-small: 8px;
+  --warning-soft: var(--fluxo-warning-soft);
+  --shadow: var(--fluxo-card-shadow);
+  --radius-large: var(--fluxo-radius);
+  --radius-medium: var(--fluxo-radius);
+  --radius-small: var(--fluxo-radius-control);
 }
 
 * {
@@ -59,30 +59,12 @@ h3 {
 a {
   text-decoration-thickness: 0.08em;
   text-underline-offset: 0.18em;
-  transition: color 140ms ease;
+  transition: color var(--fluxo-motion-fast) ease;
 }
 
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 3px solid var(--accent);
-  outline-offset: 3px;
-}
-
-.skip-link {
-  position: fixed;
-  top: -5rem;
-  left: 0;
-  z-index: 1000;
-  padding: 10px 16px;
-  color: #ffffff;
-  background: var(--fluxo-ink);
-  border-radius: 0 0 var(--radius-small) 0;
-  font-weight: 650;
-  transition: top 140ms ease;
-}
-
-.skip-link:focus {
-  color: #ffffff;
-  top: 0;
+  outline-offset: var(--fluxo-focus-offset);
 }
 
 .visually-hidden {
@@ -110,8 +92,8 @@ a {
   align-items: center;
   min-height: 4.5rem;
   padding: 0.75rem clamp(1rem, 3vw, 2rem);
-  background: rgba(255, 255, 255, 0.96);
-  border-bottom: 1px solid rgba(12, 77, 106, 0.16);
+  background: rgba(var(--fluxo-surface-rgb), 0.96);
+  border-bottom: 1px solid var(--fluxo-line);
 }
 
 .header-brand {
@@ -139,7 +121,7 @@ a {
 
 .header-brand span {
   min-width: 0;
-  border-left: 1px solid rgba(12, 77, 106, 0.22);
+  border-left: 1px solid rgba(var(--fluxo-ink-rgb), 0.22);
   padding-left: 0.85rem;
   line-height: 1.2;
 }
@@ -154,7 +136,7 @@ a {
   background: var(--sidebar);
   color: var(--sidebar-text);
   border-right: 1px solid var(--sidebar-border);
-  box-shadow: 4px 0 20px rgb(12 77 106 / 4%);
+  box-shadow: 4px 0 20px rgba(var(--fluxo-ink-rgb), 0.04);
 }
 
 .filter-card {
@@ -240,20 +222,20 @@ a {
 .logout-link {
   display: inline-flex;
   align-items: center;
-  min-height: 34px;
+  min-height: var(--fluxo-control-min-height);
   padding: 6px 11px;
   color: var(--text-muted);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 999px;
-  font-family: var(--font-heading);
+  border-radius: var(--radius-small);
+  font-family: var(--font-body);
   font-size: 0.78rem;
-  font-weight: 650;
+  font-weight: 600;
   text-decoration: none;
   transition:
-    background-color 140ms ease,
-    border-color 140ms ease,
-    color 140ms ease,
+    background-color var(--fluxo-motion-fast) ease,
+    border-color var(--fluxo-motion-fast) ease,
+    color var(--fluxo-motion-fast) ease,
     transform 100ms ease;
 }
 
@@ -281,7 +263,7 @@ a {
   cursor: pointer;
   font-weight: 700;
   list-style: none;
-  transition: color 140ms ease;
+  transition: color var(--fluxo-motion-fast) ease;
 }
 
 .details-card summary::-webkit-details-marker,
@@ -295,7 +277,7 @@ a {
   font-size: 1.2rem;
   font-weight: 400;
   line-height: 1;
-  transition: transform 140ms ease;
+  transition: transform var(--fluxo-motion-fast) ease;
 }
 
 .details-card[open] > summary .summary-icon,
@@ -377,7 +359,7 @@ a {
 .auto-refresh-control {
   display: inline-flex;
   align-items: center;
-  min-height: 34px;
+  min-height: var(--fluxo-control-min-height);
 }
 
 .auto-refresh-toggle,
@@ -413,7 +395,7 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-height: 34px;
+  min-height: var(--fluxo-control-min-height);
   padding: 5px 10px 5px 7px;
   color: var(--text-muted);
   background: var(--surface);
@@ -425,13 +407,13 @@ a {
   cursor: pointer;
   user-select: none;
   transition:
-    background-color 140ms ease,
-    border-color 140ms ease;
+    background-color var(--fluxo-motion-fast) ease,
+    border-color var(--fluxo-motion-fast) ease;
 }
 
 .auto-refresh-toggle label:hover {
   background: var(--surface-muted);
-  border-color: #b7cbd6;
+  border-color: var(--fluxo-primary);
 }
 
 .auto-refresh-toggle input[type="checkbox"] {
@@ -442,13 +424,13 @@ a {
   margin: 0;
   appearance: none;
   -webkit-appearance: none;
-  background: #c7d4db;
-  border: 1px solid #96aab5;
+  background: var(--fluxo-line);
+  border: 1px solid var(--fluxo-muted);
   border-radius: 999px;
   cursor: pointer;
   transition:
-    background-color 140ms ease,
-    border-color 140ms ease;
+    background-color var(--fluxo-motion-fast) ease,
+    border-color var(--fluxo-motion-fast) ease;
 }
 
 .auto-refresh-toggle input[type="checkbox"]::after {
@@ -457,11 +439,11 @@ a {
   left: 2px;
   width: 12px;
   height: 12px;
-  background: #ffffff;
+  background: var(--fluxo-surface);
   border-radius: 50%;
-  box-shadow: 0 1px 2px rgb(12 77 106 / 25%);
+  box-shadow: 0 1px 2px rgba(var(--fluxo-ink-rgb), 0.25);
   content: "";
-  transition: transform 140ms ease;
+  transition: transform var(--fluxo-motion-fast) ease;
 }
 
 .auto-refresh-toggle input[type="checkbox"]:checked {
@@ -618,13 +600,13 @@ a {
 .message.warning {
   color: var(--warning);
   background: var(--warning-soft);
-  border-color: #f0d998;
+  border-color: var(--fluxo-warning-line);
 }
 
 .message.error {
   color: var(--danger);
   background: var(--danger-soft);
-  border-color: #efc9c5;
+  border-color: var(--fluxo-danger-line);
 }
 
 .is-hidden {
@@ -661,7 +643,7 @@ a {
 .status.warning {
   color: var(--warning);
   background: var(--warning-soft);
-  border-color: #f0d998;
+  border-color: var(--fluxo-warning-line);
 }
 
 .status.warning::before {
@@ -671,7 +653,7 @@ a {
 .status.error {
   color: var(--danger);
   background: var(--danger-soft);
-  border-color: #efc9c5;
+  border-color: var(--fluxo-danger-line);
 }
 
 .status.error::before {
@@ -684,20 +666,20 @@ a {
 
 .primary-button,
 .secondary-button {
-  min-height: 40px;
-  padding: 9px 15px;
+  min-height: var(--fluxo-control-min-height);
+  padding: var(--fluxo-control-padding-y) var(--fluxo-control-padding-x);
   border-radius: var(--radius-small);
-  font-family: var(--font-heading);
-  font-weight: 680;
+  font-family: var(--font-body);
+  font-weight: 600;
   cursor: pointer;
   transition:
-    background-color 140ms ease,
-    border-color 140ms ease,
-    transform 140ms ease;
+    background-color var(--fluxo-motion-fast) ease,
+    border-color var(--fluxo-motion-fast) ease,
+    transform var(--fluxo-motion-fast) ease;
 }
 
 .primary-button {
-  color: #ffffff;
+  color: var(--fluxo-surface);
   background: var(--accent);
   border: 1px solid var(--accent);
 }
@@ -716,7 +698,7 @@ a {
 
 .secondary-button:hover {
   background: var(--surface-muted);
-  border-color: #b7cbd6;
+  border-color: var(--fluxo-primary);
 }
 
 .primary-button:active:not(:disabled),
@@ -738,7 +720,7 @@ a {
 .sidebar .secondary-button:hover {
   color: var(--fluxo-ink);
   background: var(--accent-soft);
-  border-color: #b7cbd6;
+  border-color: var(--fluxo-primary);
 }
 
 .primary-button:focus-visible,
@@ -746,7 +728,7 @@ a {
 .auto-refresh-toggle input:focus-visible,
 input:focus-visible {
   outline: 3px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: var(--fluxo-focus-offset);
 }
 
 .primary-button:disabled,
@@ -768,7 +750,7 @@ input:focus-visible {
 .sidebar .dash-dropdown {
   width: 100%;
   color: var(--text);
-  background: #ffffff;
+  background: var(--fluxo-surface);
   border: 1px solid var(--sidebar-border);
   border-radius: var(--radius-small);
 }
@@ -785,15 +767,14 @@ input:focus-visible {
 .sidebar .DateInput_input,
 .sidebar .DateRangePickerInput {
   color: var(--text);
-  background: #ffffff;
+  background: var(--fluxo-surface);
   border-color: transparent;
 }
 
 .sidebar .is-focused > .Select-control,
 .sidebar .DateInput_input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgb(0 122 175 / 18%);
-  outline: none;
+  box-shadow: none;
 }
 
 .sidebar .Select-control,
@@ -812,7 +793,7 @@ input:focus-visible {
 .sidebar .Select--multi .Select-value {
   color: var(--accent-hover);
   background: var(--accent-soft);
-  border-color: #b7d5e3;
+  border-color: var(--fluxo-line);
 }
 
 .sidebar .DateInput {
@@ -821,7 +802,7 @@ input:focus-visible {
 
 .sidebar .DateInput_input {
   width: 100%;
-  height: 38px;
+  min-height: var(--fluxo-control-min-height);
   padding: 7px 8px;
   font-size: 0.82rem;
 }
@@ -853,11 +834,11 @@ input:focus-visible {
   --ag-background-color: var(--surface);
   --ag-border-color: var(--border);
   --ag-border-radius: var(--radius-small);
-  --ag-font-family: inherit;
+  --ag-font-family: var(--fluxo-font-body);
   --ag-font-size: 13px;
   --ag-header-background-color: var(--surface-muted);
   --ag-header-text-color: var(--text);
-  --ag-odd-row-background-color: #f8fbfd;
+  --ag-odd-row-background-color: var(--fluxo-background);
   --ag-row-hover-color: var(--accent-soft);
   --ag-text-color: var(--text);
 }
@@ -870,7 +851,7 @@ input:focus-visible {
   margin-top: 32px;
   padding: 18px 2px 0;
   color: var(--text-muted);
-  border-top: 1px solid rgb(12 77 106 / 16%);
+  border-top: 1px solid var(--fluxo-line);
   font-size: 0.78rem;
 }
 
@@ -896,7 +877,7 @@ input:focus-visible {
 
 .footer-links a {
   color: var(--text-muted);
-  transition: color 140ms ease;
+  transition: color var(--fluxo-motion-fast) ease;
 }
 
 .footer-links a:hover {
@@ -1003,7 +984,7 @@ input:focus-visible {
   }
 
   .auto-refresh-toggle label {
-    min-height: 40px;
+    min-height: var(--fluxo-control-min-height);
   }
 
   .logout-link,
@@ -1026,7 +1007,7 @@ input:focus-visible {
   .chart-card,
   .table-card {
     padding: 17px;
-    border-radius: 14px;
+    border-radius: var(--fluxo-radius);
   }
 
   .chart-card {
@@ -1052,3 +1033,23 @@ input:focus-visible {
 
 /* Keep Plotly resize transitions inside their panel on small screens. */
 .dash-graph { max-width: 100%; overflow-x: auto; }
+
+/* Framework adapters use the same control/font roles as the surrounding app. */
+.sidebar .dash-dropdown,
+.sidebar .Select-control,
+.sidebar .dash-checklist label {
+  min-height: var(--fluxo-control-min-height);
+  font-family: var(--fluxo-font-body);
+}
+.sidebar .dash-dropdown-value,
+.sidebar .Select-value-label,
+.sidebar .DateInput_input {
+  font-family: var(--fluxo-font-body);
+}
+.sidebar .dash-dropdown:focus-within {
+  outline: 3px solid var(--fluxo-primary);
+  outline-offset: var(--fluxo-focus-offset);
+}
+.sidebar .dash-dropdown :focus-visible {
+  outline: none !important;
+}

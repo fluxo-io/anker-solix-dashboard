@@ -23,9 +23,9 @@ from flask import (
     render_template,
 )
 
-from solarbank_dashboard.assets import install_assets
+from solarbank_dashboard.assets import design_tokens, install_assets
 from solarbank_dashboard.auth import AuthSettings, configure_auth
-from solarbank_dashboard.charts import line_figure
+from solarbank_dashboard.charts import apply_chart_theme, line_figure
 from solarbank_dashboard.config import ConfigurationError, Settings
 from solarbank_dashboard.details import freshness_view, snapshot_view
 from solarbank_dashboard.public_pages import register_public_pages
@@ -317,7 +317,7 @@ def empty_figure(message: str = "Keine Daten") -> go.Figure:
     figure.add_annotation(
         text=message,
         showarrow=False,
-        font={"color": "#586c7b", "family": "Open Sans, sans-serif", "size": 14},
+        font={"color": design_tokens()["muted"], "family": design_tokens()["font-body-name"], "size": 14},
     )
     figure.update_layout(
         height=340,
@@ -327,7 +327,7 @@ def empty_figure(message: str = "Keine Daten") -> go.Figure:
         xaxis={"visible": False},
         yaxis={"visible": False},
     )
-    return figure
+    return apply_chart_theme(figure)
 
 
 def graph_figures(
@@ -436,11 +436,11 @@ def energy_view(frame: pd.DataFrame, revision: str) -> tuple[go.Figure, Any]:
         margin={"l": 10, "r": 10, "t": 28, "b": 10},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"color": "#243746", "family": "Open Sans, sans-serif"},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
         yaxis_title="kWh",
         xaxis={"type": "category"},
     )
+    apply_chart_theme(figure)
     table = html.Div(
         html.Table(
             [
@@ -948,7 +948,7 @@ def build_layout(*, auth_enabled: bool = False) -> html.Div:
     skip_link = html.A(
         "Zum Inhalt",
         href="#main-content",
-        className="skip-link",
+        className="fluxo-skip-link skip-link",
     )
     return html.Div(
         [
@@ -1295,9 +1295,7 @@ class ShortcutDash(Dash):
     """Share shortcut metadata with the public Jinja documents."""
 
     def interpolate_index(self, **kwargs):
-        kwargs["favicon"] = kwargs.get("favicon", "") + render_template(
-            "shortcut_icons.html"
-        )
+        kwargs["favicon"] = render_template("shortcut_icons.html")
         return super().interpolate_index(**kwargs)
 
 

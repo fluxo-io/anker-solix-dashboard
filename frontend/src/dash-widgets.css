@@ -1,0 +1,149 @@
+/* Dash 4 injects its defaults after the app CSS. This adapter also reaches portals. */
+html:root {
+  --Dash-Stroke-Strong: var(--fluxo-control-line);
+  --Dash-Stroke-Weak: var(--fluxo-line);
+  --Dash-Fill-Interactive-Strong: var(--fluxo-primary);
+  --Dash-Fill-Interactive-Weak: var(--fluxo-soft);
+  --Dash-Fill-Inverse-Strong: var(--fluxo-surface);
+  --Dash-Text-Primary: var(--fluxo-text);
+  --Dash-Text-Strong: var(--fluxo-text);
+  --Dash-Text-Weak: var(--fluxo-muted);
+  --Dash-Text-Disabled: var(--fluxo-muted);
+  --Dash-Fill-Primary-Hover: var(--fluxo-soft);
+  --Dash-Fill-Primary-Active: var(--fluxo-line);
+  --Dash-Fill-Disabled: var(--fluxo-line);
+  --Dash-Shading-Strong: rgba(var(--fluxo-ink-rgb), .24);
+  --Dash-Shading-Weak: rgba(var(--fluxo-ink-rgb), .12);
+}
+
+html :is(.dash-datepicker, .dash-datepicker-content, .dash-dropdown,
+  .dash-dropdown-content, .dash-input) {
+  font-family: var(--fluxo-font-body);
+  color: var(--fluxo-text);
+}
+
+html :is(.dash-datepicker-input-wrapper, .dash-dropdown, .dash-input) {
+  min-height: var(--fluxo-control-min-height);
+  border-radius: var(--fluxo-radius-control);
+}
+html .dash-datepicker-input {
+  height: calc(var(--fluxo-control-min-height) - 2px);
+  min-width: 0;
+  border-radius: var(--fluxo-radius-control);
+}
+html .dash-datepicker-input-wrapper:has(:focus-visible) {
+  outline: 3px solid var(--fluxo-primary);
+  outline-offset: var(--fluxo-focus-offset);
+}
+html .dash-datepicker-input-wrapper .dash-datepicker-input:focus-visible {
+  outline: none !important;
+}
+html .dash-datepicker-content:not(.dash-datepicker-portal),
+html .dash-datepicker-portal .dash-datepicker-calendar-wrapper,
+html .dash-dropdown-content {
+  border-radius: var(--fluxo-radius);
+  box-shadow: var(--fluxo-overlay-shadow);
+}
+html :is(.dash-datepicker-month-nav, .dash-datepicker-close-button,
+  .dash-datepicker-clear) {
+  width: var(--fluxo-control-min-height);
+  height: var(--fluxo-control-min-height);
+  border-radius: var(--fluxo-radius-control);
+}
+html .dash-datepicker-calendar {
+  /* Seven dates still fit the narrowest supported viewport. */
+  --day-size: min(var(--fluxo-control-min-height), calc((100vw - 36px) / 7));
+}
+html .dash-datepicker-calendar td {
+  height: var(--fluxo-control-min-height);
+}
+html .dash-datepicker-calendar td:focus-visible {
+  outline-offset: -3px;
+  border-radius: var(--fluxo-radius-control);
+}
+html .dash-datepicker-controls .dash-input {
+  /* Two touch steppers, input padding, and five text columns. */
+  width: calc(5ch + var(--fluxo-control-min-height) + var(--fluxo-control-min-height) + 1rem + 2px);
+  min-width: calc(5ch + var(--fluxo-control-min-height) + var(--fluxo-control-min-height) + 1rem + 2px);
+  max-width: 100%;
+  height: calc(var(--fluxo-control-min-height) + 2px);
+}
+html .dash-datepicker-controls .dash-input-element {
+  min-width: calc(5ch + 1rem);
+  padding-inline: .5rem;
+  flex: 1 0 calc(5ch + 1rem);
+}
+html .dash-datepicker-controls .dash-input-stepper {
+  width: var(--fluxo-control-min-height);
+  min-width: var(--fluxo-control-min-height);
+  padding: 0;
+  flex: 0 0 var(--fluxo-control-min-height);
+}
+html .dash-datepicker-controls .dash-input-container:has(:focus-visible) {
+  outline: 3px solid var(--fluxo-primary);
+  outline-offset: var(--fluxo-focus-offset);
+}
+html .dash-datepicker-controls .dash-input-element:focus-visible {
+  outline: none !important;
+}
+
+.solarbank-grid .ag-paging-panel {
+  min-height: calc(var(--fluxo-control-min-height) + 1rem);
+  height: auto;
+  flex-wrap: wrap;
+  gap: .5rem;
+  padding-block: .5rem;
+  font-family: var(--fluxo-font-body);
+}
+.solarbank-grid .ag-paging-button {
+  min-width: var(--fluxo-control-min-height);
+  min-height: var(--fluxo-control-min-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--fluxo-radius-control);
+}
+.solarbank-grid .ag-paging-panel .ag-picker-field-wrapper {
+  min-height: var(--fluxo-control-min-height);
+  border-radius: var(--fluxo-radius-control);
+}
+
+.solarbank-grid .ag-paging-description,
+.solarbank-grid .ag-paging-row-summary-panel {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  line-height: 1.5;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+  .solarbank-grid .ag-paging-panel { justify-content: center; }
+  .solarbank-grid .ag-paging-page-summary-panel {
+    display: grid;
+    grid-template-columns: repeat(4, var(--fluxo-control-min-height));
+    justify-content: center;
+    gap: .375rem;
+    margin-inline: 0;
+  }
+  .solarbank-grid .ag-paging-description {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-content: center;
+  }
+  .solarbank-grid .ag-paging-page-summary-panel .ag-paging-button { grid-row: 2; }
+}
+
+@media (max-width: 520px) {
+  html .dash-datepicker-controls {
+    display: grid;
+    grid-template-columns: var(--fluxo-control-min-height) minmax(0, 1fr) var(--fluxo-control-min-height);
+    width: 100%;
+    gap: .25rem;
+  }
+  html .dash-datepicker-controls .dash-dropdown { grid-column: 2; grid-row: 1; }
+  html .dash-datepicker-controls .dash-input { grid-column: 2; grid-row: 2; justify-self: center; }
+  html .dash-datepicker-month-nav:first-child { grid-column: 1; grid-row: 1 / 3; }
+  html .dash-datepicker-month-nav:last-child { grid-column: 3; grid-row: 1 / 3; }
+}

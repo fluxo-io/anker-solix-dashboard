@@ -3,6 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 
+from solarbank_dashboard.assets import design_tokens
+
 LABELS = {
     "pv_total_w": "PV gesamt",
     "pv_1_w": "PV1",
@@ -37,6 +39,21 @@ COLORS = {
     "battery_soc_pct": "#3e7cb1",
 }
 
+
+
+def apply_chart_theme(figure: go.Figure) -> go.Figure:
+    """Use the same packaged type and neutral colors as the surrounding UI."""
+    tokens = design_tokens()
+    figure.update_layout(
+        font={"color": tokens["text"], "family": tokens["font-body-name"]},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        hoverlabel={"bgcolor": tokens["surface"], "bordercolor": tokens["line"]},
+    )
+    figure.update_xaxes(gridcolor=tokens["soft"], linecolor=tokens["line"])
+    figure.update_yaxes(gridcolor=tokens["soft"], linecolor=tokens["line"],
+                       zeroline=True, zerolinecolor=tokens["line"])
+    return figure
 
 def line_figure(
     frame: pd.DataFrame,
@@ -83,7 +100,6 @@ def line_figure(
         margin={"l": 10, "r": 10, "t": 20, "b": 10},
         hovermode="x unified",
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
-        font={"color": "#17231c", "family": "system-ui, sans-serif"},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         xaxis_title=None,
@@ -91,11 +107,4 @@ def line_figure(
         uirevision=revision,
         legend_uirevision=revision,
     )
-    figure.update_xaxes(gridcolor="#eef3f0", linecolor="#dce5df")
-    figure.update_yaxes(
-        gridcolor="#eef3f0",
-        linecolor="#dce5df",
-        zeroline=True,
-        zerolinecolor="#c7d2cb",
-    )
-    return figure
+    return apply_chart_theme(figure)

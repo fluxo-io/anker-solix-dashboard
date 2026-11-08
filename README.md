@@ -215,7 +215,7 @@ sich ändern.
 
 Web → API → SQLite ist in `webapp-profile.json` festgehalten. Dash bleibt erhalten; seine fünf lesenden POST-Callbacks sind im Web ausdrücklich klassifiziert. Login, Logout und weitere schreibende Browserrouten benötigen CSRF. Sitzungen besitzen eine absolute Frist (`SESSION_HOURS`); die Anmeldung wird bei alten Cookies ohne Ausstellungszeit einmal erneut verlangt.
 
-Aktionsmeldungen verwenden `@fluxo/web-ui` 1.0.2. Dash liefert Text, Kategorie und stabile Ereignis-ID über drei `dcc.Store`-Kanäle. Ein registrierter Clientside-Callback übergibt neue Ereignisse an die gemeinsame Toast-Bibliothek und quittiert sie in einem begrenzten Speicher. Wiederholtes Polling erzeugt keine doppelten Meldungen; eine neue Aktion oder ein erneuter Ausfall nach Erholung darf erneut melden. Es gibt keine DOM-Beobachtung und keinen Eingriff in React-Knoten. Datenfrische und Collectorzustand bleiben dauerhaft sichtbar. Fluxo-Design 0.4.0 und beide Pakete liegen fest in `frontend/vendor/`; keine Laufzeitverbindung zur Bibliothek.
+Aktionsmeldungen verwenden `@fluxo/web-ui` 1.0.2. Dash liefert Text, Kategorie und stabile Ereignis-ID über drei `dcc.Store`-Kanäle. Ein registrierter Clientside-Callback übergibt neue Ereignisse an die gemeinsame Toast-Bibliothek und quittiert sie in einem begrenzten Speicher. Wiederholtes Polling erzeugt keine doppelten Meldungen; eine neue Aktion oder ein erneuter Ausfall nach Erholung darf erneut melden. Es gibt keine DOM-Beobachtung und keinen Eingriff in React-Knoten. Datenfrische und Collectorzustand bleiben dauerhaft sichtbar. Fluxo-Design 0.5.0 und beide Pakete liegen fest in `frontend/vendor/`; keine Laufzeitverbindung zur Bibliothek.
 
 `npm --prefix frontend ci && npm --prefix frontend run build` erzeugt Hashassets und Manifest. Öffentliche Jinja-Seiten und Dash verwenden denselben geprüften Manifest-Lookup. Die Factory akzeptiert Settings/AuthSettings und einen injizierten API-Transport; der Gunicorn-Einstieg ist `solarbank_dashboard.wsgi:server`.
 
@@ -341,3 +341,7 @@ gewöhnliche API-Aufrufe mit `API_TIMEOUT_SECONDS` (5 s) und Healthabfragen auf
 2 s/16 KiB. HTTP-Healthprobe 3 s, Docker-Healthcheck 5 s. 100.000 synthetische
 Messwerte ergaben lokal 35,46 MiB Antwort und 6,175 s Auswertung; dies ist ein
 Lastnachweis dieser Testumgebung, keine Zusage für die Produktivmaschine.
+
+Diagramm-Schrift und neutrale Diagrammfarben verwenden denselben `tokens.json`-Export wie die Oberfläche. Webpack legt ihn mit Inhalts-Hash im Asset-Manifest ab; das Webimage enthält ihn vollständig und prüft ihn beim Start. Die fachlichen Messreihen behalten ihre eigenen Farben. Login, Fehlerseiten und Dash verwenden dieselben Fluxo-Favicons und Homescreen-Metadaten.
+
+`frontend/src/dash-widgets.css` ordnet die vollständige Dash-4-Farbpalette den Fluxo-Tokens zu, einschließlich portierter Dropdowns und Datumsauswahl. Bei Dash-Upgrades sind geöffnete Widgets sowie Fokus, Auswahl und Paginierung bei 320 Pixeln zu prüfen.
