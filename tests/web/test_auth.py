@@ -15,12 +15,16 @@ def test_cookie_names_keep_defaults_and_allow_isolated_instances():
     configure_auth(secure, AuthSettings(secret_key="s" * 32, secure_cookie=True))
     assert secure.config["SESSION_COOKIE_NAME"] == "__Host-solarbank_session"
     custom = Flask(__name__)
-    configure_auth(custom, AuthSettings(secret_key="s" * 32, session_cookie_name="solarbank_nord"))
+    configure_auth(
+        custom, AuthSettings(secret_key="s" * 32, session_cookie_name="solarbank_nord")
+    )
     assert custom.config["SESSION_COOKIE_NAME"] == "solarbank_nord"
     assert custom.config["REMEMBER_COOKIE_NAME"] != plain.config["REMEMBER_COOKIE_NAME"]
     for invalid in ["", "session;other", "session=value", "__Host-insecure"]:
         with pytest.raises(ValueError):
             AuthSettings(secret_key="s" * 32, session_cookie_name=invalid)
+
+
 from solarbank_dashboard.repository import ApiError
 
 
@@ -49,6 +53,8 @@ def test_login_delegates_credentials_and_keeps_token_out_of_cookie(monkeypatch):
     def authenticate(_settings, path, *, payload):
         if path == "/v1/auth/session":
             return {"id": "admin", "username": "admin"}
+        if path == "/v1/auth/logout":
+            return {"ok": True}
         captured.update(payload)
         assert path == "/v1/auth/login"
         return {"id": "admin", "username": "admin"}
@@ -190,3 +196,55 @@ def test_session_expiry_is_absolute_and_logout_survives_api_loss(monkeypatch):
     assert client.get("/").status_code == 302
     with client.session_transaction() as state:
         assert "_user_id" not in state
+
+
+def test_logout_confirmation_during_api_loss_preserves_session_until_valid_post(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "solarbank_dashboard.auth.request_api",
+        lambda *args, **kwargs: {"id": "reader", "username": "reader"},
+    )
+    client = app().test_client()
+    assert (
+        client.post(
+            "/login",
+            data={
+                "csrf_token": csrf(client.get("/login")),
+                "username": "reader",
+                "password": "synthetic-password",
+            },
+        ).status_code
+        == 302
+    )
+
+    def unexpected_account_lookup(_settings, path, *, payload):
+        if path == "/v1/auth/logout":
+            assert payload == {"id": "reader"}
+            raise ApiError(503)
+        pytest.fail("Logout confirmation must not load the account from the API")
+
+    monkeypatch.setattr(
+        "solarbank_dashboard.auth.request_api", unexpected_account_lookup
+    )
+    response = client.get("/logout")
+    assert response.status_code == 200
+    token = csrf(response)
+    with client.session_transaction() as state:
+        assert state["_user_id"] == "reader"
+    assert client.post("/logout", data={"csrf_token": "invalid"}).status_code == 400
+    with client.session_transaction() as state:
+        assert state["_user_id"] == "reader"
+    assert client.post("/logout", data={"csrf_token": token}).status_code == 302
+    with client.session_transaction() as state:
+        assert "_user_id" not in state
+
+
+def test_fractional_hours_preserve_integer_seconds(monkeypatch):
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    monkeypatch.setenv("SESSION_HOURS", "0.0175")
+    settings = AuthSettings.from_environment()
+    assert settings.duration_seconds == 63
+    application = Flask(__name__)
+    configure_auth(application, settings)
+    assert application.permanent_session_lifetime.total_seconds() == 63

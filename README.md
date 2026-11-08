@@ -51,6 +51,23 @@ Alternativ kann `INIT_ADMIN_PASSWORD_HASH` einen vorhandenen sicheren
 Scrypt-/PBKDF2-Hash für den ersten Benutzer enthalten. Ein gesetztes
 Klartextpasswort hat Vorrang. Init-Werte ändern einen vorhandenen Benutzer nicht.
 
+### Anmeldung prüfen
+
+Der Dashboard-Zugang verwendet das in SQLite gespeicherte Startkonto. Die
+Anker-Cloud-Zugangsdaten `ANKER_USERNAME`/`ANKER_PASSWORD` gehören nur zum Collector.
+Das Benutzerkonto liegt unter `<HOST_DATA_DIR>/db/app.sqlite3` in `auth_users`; der
+Webdienst speichert seine Sitzung im signierten Browsercookie. Ein geändertes
+`INIT_ADMIN_PASSWORD` setzt das Passwort eines vorhandenen Kontos nicht zurück.
+`SECRET_KEY` beim Neubau beibehalten, sonst werden bestehende Sitzungen ungültig.
+
+Bei Loginproblemen zuerst den gewählten Compose-Overlay, `config --quiet`, den
+API-/Web-Healthcheck und den unveränderten Hostdatenpfad kontrollieren. Ein neuer
+leerer Datenpfad wäre ein anderer Bestand. Im Server-Overlay sind HTTPS-Cookies
+und Proxy-Vertrauen aktiv; beim lokalen HTTP-Start das lokale Overlay verwenden.
+Nach Ablauf der konfigurierten Frist (standardmäßig acht Stunden) ist eine neue
+Anmeldung erforderlich. Ein Wechsel der Clientadresse beendet die Sitzung nicht. `/logout` bleibt auch bei
+API-Ausfall erreichbar; erst das bestätigte Formular beendet die lokale Sitzung.
+
 `HOST_DATA_DIR` wählt den Host-Datenordner, standardmäßig `./data`. Wenn es nicht
 gesetzt ist, bleibt der bisherige Hostalias `DATA_DIR` wirksam. Beide Werte bezeichnen
 denselben vorhandenen Datenbestand; beim Upgrade keinen neuen leeren Pfad wählen.
@@ -219,7 +236,7 @@ Aktionsmeldungen verwenden `@fluxo/web-ui` 1.0.2. Dash liefert Text, Kategorie u
 
 `npm --prefix frontend ci && npm --prefix frontend run build` erzeugt Hashassets und Manifest. Öffentliche Jinja-Seiten und Dash verwenden denselben geprüften Manifest-Lookup. Die Factory akzeptiert Settings/AuthSettings und einen injizierten API-Transport; der Gunicorn-Einstieg ist `solarbank_dashboard.wsgi:server`.
 
-Vor dem Upgrade sämtliche Start-/Deploymentaufrufe um das gewünschte Overlay ergänzen. Datenpfade, UID/GID, Compose-Name, getrennte Collectorablage und drei Minuten Stopfrist bleiben erhalten. Keine Datenmigration erforderlich.
+Vor dem Upgrade sämtliche Start-/Deploymentaufrufe um das gewünschte Overlay ergänzen. Datenpfade, UID/GID, Compose-Name, getrennte Collectorablage und drei Minuten Stopfrist bleiben erhalten. Für die gemeinsame Anmeldung gilt zusätzlich die unten beschriebene Auth-Migration.
 
 ### Gemeinsame Prüfungen
 
@@ -244,7 +261,7 @@ vorhandene private Dashboard; es entstehen keine neuen Benutzer- oder Fachrollen
 
 | Schlüssel / Dienst | Erlaubte Operationen |
 | --- | --- |
-| `API_TOKEN` / Web | GET/HEAD Geräte, Dashboardauswertung, Messwerte, letzte Messwerte, Snapshot, Collectorstatus; POST Login und Sessionprüfung |
+| `API_TOKEN` / Web | GET/HEAD Geräte, Dashboardauswertung, Messwerte, letzte Messwerte, Snapshot, Collectorstatus; POST Login, Sessionprüfung und Logout |
 | `COLLECTOR_API_TOKEN` / Collector | POST Messwerte, Abrufversuch, Abruffehler; GET/HEAD `/v1/collector/ready` |
 | ohne Schlüssel | GET/HEAD `/healthz`, ausschließlich minimale Bereitschaft |
 
@@ -299,7 +316,7 @@ Gerät sein zwischengespeichertes Icon ersetzt.
 | `INIT_ADMIN_USERNAME` | Benutzername | `admin` | initial / nein | API: Startkonto |
 | `INIT_ADMIN_PASSWORD` | Passwort, ≥12 Zeichen | leer | initial Passwort oder Hash / ja | API: Startkonto; danach entfernen |
 | `INIT_ADMIN_PASSWORD_HASH` | Werkzeug-Passworthash | leer | alternativ / ja | API: Startkonto; Klartext hat Vorrang |
-| `SESSION_HOURS` | ganze Stunden, 1–168 | `8` | nein / nein | Web: absolute Sitzungsfrist |
+| `SESSION_HOURS` | Stunden; ganze Sekunden, höchstens 31 Tage | `8` | nein / nein | API/Web: absolute Sitzungsfrist |
 | `SESSION_COOKIE_NAME` | Cookie-Name, 1–80 Zeichen | `solarbank_session`, bei Secure `__Host-solarbank_session` | nein / nein | Web: je Instanz eigener Namensraum |
 | `SESSION_COOKIE_SECURE` | `true`/`false` | lokal `false`, Server `true` | nein / nein | Web: HTTPS-Cookie |
 | `CANONICAL_ORIGIN` | HTTP(S)-Origin | Server `https://kraftwerk.fluxo.io` | für Server gesetzt / nein | Web: Host-/Origin-Prüfung |
@@ -345,3 +362,52 @@ Lastnachweis dieser Testumgebung, keine Zusage für die Produktivmaschine.
 Diagramm-Schrift und neutrale Diagrammfarben verwenden denselben `tokens.json`-Export wie die Oberfläche. Webpack legt ihn mit Inhalts-Hash im Asset-Manifest ab; das Webimage enthält ihn vollständig und prüft ihn beim Start. Die fachlichen Messreihen behalten ihre eigenen Farben. Login, Fehlerseiten und Dash verwenden dieselben Fluxo-Favicons und Homescreen-Metadaten.
 
 `frontend/src/dash-widgets.css` ordnet die vollständige Dash-4-Farbpalette den Fluxo-Tokens zu, einschließlich portierter Dropdowns und Datumsauswahl. Bei Dash-Upgrades sind geöffnete Widgets sowie Fokus, Auswahl und Paginierung bei 320 Pixeln zu prüfen.
+
+
+## Gemeinsamer Login und Benutzerspeicher
+
+Web und API installieren dasselbe feste Pythonpaket `fluxo_auth` 1.0.0 aus
+`vendor/`; `vendor/SHA256SUMS` prüft das Paket. Benutzer, Sitzungen und
+Anmeldeversuche liegen in den gemeinsamen `auth_*`-Tabellen der bestehenden
+`data/db/app.sqlite3`. Messwerte und Collectorstatus bleiben in derselben Datei;
+der Webdienst erhält keinen Datenbankmount. Es gibt keine zweite Kontenquelle.
+
+Beim ersten Start übernimmt die API bestehende Benutzer und Passwort-Hashes
+transaktional. Benutzer erhalten eine stabile interne Kennung; der frühere
+Passwort-Fingerprint wird nicht mehr als Sitzung verwendet. Namenskollisionen
+nach der gemeinsamen Normalisierung brechen den Import ab. Vor dem produktiven
+Upgrade konsistent sichern, API und Web gemeinsam aktualisieren und anschließend
+einmal neu anmelden. Bestehende Passwörter und getrennte Dienstschlüssel bleiben
+erhalten; Initialwerte überschreiben keine vorhandenen Konten.
+
+Der Login verwendet zufällige serverseitige Sitzungstokens, deren HMAC in SQLite
+liegt. Standard sind acht Stunden absolute Laufzeit und keine Remember-Anmeldung.
+`SESSION_HOURS` erreicht sowohl API als auch Web; die API-Frist bleibt maßgeblich.
+Ein IP-Wechsel allein meldet einen gültigen Benutzer nicht ab. Logout sperrt genau
+diese Sitzung; Passwortänderung oder Deaktivierung sperren alle Sitzungen des
+Kontos. Während eines API-Ausfalls ist lokales Abmelden weiterhin möglich; die
+serverseitige Sperre benötigt die erreichbare API.
+
+Der gemeinsame Schutz erlaubt fünf Anmeldeversuche in fünf Minuten und zwanzig
+in einer Stunde pro Konto und Client. Bestehende Sperren bleiben beim Upgrade
+wirksam; erfolgreiche Logins löschen frühere Client-Fehlversuche nicht.
+
+Ein Passwort kann ohne neue Verwaltungsoberfläche interaktiv geändert werden:
+
+```sh
+docker compose -f compose.yaml -f compose.webserver.yaml exec api python -m solarbank_api.accounts admin
+```
+
+Das Passwort wird verdeckt eingegeben und nicht als Shellargument gespeichert.
+Die Funktion benutzt denselben gemeinsamen Kontenspeicher und beendet alle
+bisherigen Sitzungen. Sie legt eine fehlende Datenbank nicht neu an.
+
+Die Auth-Daten bleiben über den bisherigen Host-Bindmount per SSH/SFTP erreichbar.
+Eine konsistente Sicherung der dokumentierten Projektordner einschließlich `.env`,
+`data/db`, `data/collector` und möglicher SQLite-Journale enthält sie vollständig.
+Es wird kein regelmäßiger Backup-Job eingerichtet.
+
+`SESSION_LIFETIME_MINUTES` bleibt als alternativer Kompatibilitätsname nutzbar,
+wenn `SESSION_HOURS` leer ist. Sind beide gesetzt, müssen sie dieselbe Frist
+angeben. Eine verkürzte Frist begrenzt bestehende Sitzungen dauerhaft; eine
+spätere Verlängerung reaktiviert sie nicht.

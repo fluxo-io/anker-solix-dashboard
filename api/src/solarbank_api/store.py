@@ -3,16 +3,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import math
 import secrets
 import sqlite3
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from werkzeug.security import check_password_hash, generate_password_hash
+from fluxo_auth import AuthService, UserStore, hash_password
 
 from .config import Settings
 from .validation import MEASUREMENT_COLUMNS, NUMERIC_COLUMNS
@@ -49,7 +47,6 @@ def _serialize(row: sqlite3.Row) -> dict[str, Any]:
 class Store:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self._dummy_hash = generate_password_hash(secrets.token_urlsafe(24))
 
     @contextmanager
     def connection(self, *, create: bool = False) -> Iterator[sqlite3.Connection]:
@@ -89,7 +86,32 @@ class Store:
                     "INSERT INTO schema_migrations VALUES (?, ?)",
                     (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
                 )
-            if connection.execute("SELECT 1 FROM users LIMIT 1").fetchone() is None:
+            accounts = UserStore(connection)
+            accounts.ensure_schema()
+            if not accounts.migration_applied("anker-users-v1"):
+                rows = connection.execute("SELECT * FROM users").fetchall()
+                accounts.import_legacy(
+                    "anker-users-v1",
+                    [
+                        dict(
+                            id="usr_" + secrets.token_hex(12),
+                            username=row["username"],
+                            password_hash=row["password_hash"],
+                            active=True,
+                            authorization={},
+                            metadata={"display_name": row["username"]},
+                        )
+                        for row in rows
+                    ],
+                )
+                attempts = [
+                    dict(row)
+                    for row in connection.execute("SELECT * FROM login_attempts")
+                ]
+                accounts.import_attempts("anker-login-v1", attempts)
+                connection.execute("DROP TABLE users")
+                connection.execute("DROP TABLE login_attempts")
+            if not accounts.count():
                 if not self.settings.admin_username or not (
                     self.settings.admin_password or self.settings.admin_password_hash
                 ):
@@ -97,20 +119,18 @@ class Store:
                         "INIT_ADMIN_USERNAME und INIT_ADMIN_PASSWORD "
                         "oder INIT_ADMIN_PASSWORD_HASH fehlen"
                     )
-                password_hash = (
-                    generate_password_hash(self.settings.admin_password)
-                    if self.settings.admin_password
-                    else self.settings.admin_password_hash
-                )
-                connection.execute(
-                    "INSERT INTO users (username, password_hash, auth_nonce) "
-                    "VALUES (?, ?, ?)",
-                    (
-                        self.settings.admin_username,
-                        password_hash,
-                        secrets.token_hex(16),
+                accounts.create(
+                    id="usr_" + secrets.token_hex(12),
+                    username=self.settings.admin_username,
+                    password_hash=(
+                        hash_password(self.settings.admin_password)
+                        if self.settings.admin_password
+                        else self.settings.admin_password_hash
                     ),
+                    authorization={},
+                    metadata={"display_name": self.settings.admin_username},
                 )
+            self._auth(connection).constrain_lifetime()
         self.settings.db_path.chmod(0o600)
 
     @staticmethod
@@ -179,8 +199,13 @@ class Store:
             state = connection.execute(
                 "SELECT 1 FROM collector_state WHERE id = 1"
             ).fetchone()
-            user = connection.execute("SELECT 1 FROM users LIMIT 1").fetchone()
-            return version == SCHEMA_VERSION and state is not None and user is not None
+            accounts = UserStore(connection)
+            return (
+                version == SCHEMA_VERSION
+                and state is not None
+                and accounts.schema_ready()
+                and accounts.count() > 0
+            )
 
     def devices(self) -> list[dict[str, Any]]:
         with self.connection() as connection:
@@ -329,85 +354,49 @@ class Store:
                 )
         return written
 
+    def _auth(self, connection: sqlite3.Connection) -> AuthService:
+        return AuthService(
+            UserStore(connection),
+            self.settings.secret_key,
+            lifetime_seconds=self.settings.session_lifetime_seconds,
+        )
+
     def login(
         self, username: str, password: str, client_key: str
     ) -> tuple[dict[str, str] | None, int | None]:
         client_hash = hmac.new(
             self.settings.secret_key.encode(), client_key.encode(), hashlib.sha256
         ).hexdigest()
-        attempt_id, retry_after = self._reserve_login(client_hash)
-        if retry_after is not None:
-            return None, retry_after
-        with self.connection() as connection:
-            row = connection.execute(
-                "SELECT username, password_hash, auth_nonce "
-                "FROM users WHERE username = ?",
-                (username,),
-            ).fetchone()
-        valid = check_password_hash(
-            row["password_hash"] if row else self._dummy_hash, password
-        )
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            if row is not None and valid:
-                connection.execute(
-                    "DELETE FROM login_attempts WHERE client_key = ? "
-                    "AND (id = ? OR pending = 0)",
-                    (client_hash, attempt_id),
-                )
-                return self._user_identity(row), None
-            connection.execute(
-                "UPDATE login_attempts SET pending = 0 WHERE id = ?", (attempt_id,)
+            result = self._auth(connection).login(
+                username,
+                password,
+                client_hash,
+                legacy_attempt_keys=[("anker-login-v1", client_hash)],
             )
-        return None, None
+            if result.user is None:
+                return None, result.retry_after
+            return {"id": result.token, "username": result.user.username}, None
 
-    def _user_identity(self, row: sqlite3.Row) -> dict[str, str]:
-        material = (
-            f"{row['username']}\0{row['password_hash']}\0{row['auth_nonce']}"
-        ).encode()
-        user_id = hmac.new(
-            self.settings.secret_key.encode(), material, hashlib.sha256
-        ).hexdigest()
-        return {"id": user_id, "username": row["username"]}
-
-    def session_user(self, user_id: str) -> dict[str, str] | None:
+    def session_user(self, token: str) -> dict[str, str] | None:
         with self.connection() as connection:
-            rows = connection.execute(
-                "SELECT username, password_hash, auth_nonce FROM users"
-            ).fetchall()
-        for row in rows:
-            user = self._user_identity(row)
-            if hmac.compare_digest(user["id"].encode(), user_id.encode()):
-                return user
-        return None
+            user = self._auth(connection).validate(token)
+            return {"id": token, "username": user.username} if user else None
 
-    def _reserve_login(self, client_hash: str) -> tuple[str | None, int | None]:
-        now = time.time()
+    def logout(self, token: str) -> bool:
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                "DELETE FROM login_attempts WHERE attempted_at <= ?", (now - 3600,)
+            return self._auth(connection).logout(token)
+
+    def reset_password(self, username: str, password: str) -> None:
+        password_hash = hash_password(password)
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            accounts = UserStore(connection)
+            user = accounts.find(username)
+            if user is None:
+                raise ValueError("Benutzer nicht gefunden.")
+            accounts.update(
+                user.id, password_hash=password_hash, must_change_password=False
             )
-            timestamps = [
-                row[0]
-                for row in connection.execute(
-                    "SELECT attempted_at FROM login_attempts WHERE client_key = ? "
-                    "ORDER BY attempted_at",
-                    (client_hash,),
-                )
-            ]
-            recent = [stamp for stamp in timestamps if stamp > now - 300]
-            waits = []
-            if len(recent) >= 5:
-                waits.append(recent[-5] + 300 - now)
-            if len(timestamps) >= 20:
-                waits.append(timestamps[-20] + 3600 - now)
-            if waits:
-                return None, max(1, math.ceil(max(waits)))
-            attempt_id = secrets.token_hex(16)
-            connection.execute(
-                "INSERT INTO login_attempts (id, client_key, attempted_at) "
-                "VALUES (?, ?, ?)",
-                (attempt_id, client_hash, now),
-            )
-        return attempt_id, None

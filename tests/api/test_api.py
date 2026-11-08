@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+from fluxo_auth import UserStore
 from solarbank_api.app import create_app
 from solarbank_api.config import Settings
 from werkzeug.security import generate_password_hash
@@ -300,12 +301,13 @@ def test_restart_persists_data_password_and_rate_limit(client, settings):
     limited = login(restarted_client)
     assert limited.status_code == 429
     assert 1 <= int(limited.headers["Retry-After"]) <= 300
-    identity = login(restarted_client, client_key="another-client").json
-    assert identity["username"] == "admin"
-    assert len(identity["id"]) == 64
+    # The shared account bucket also survives a client/IP change.
+    assert login(restarted_client, client_key="another-client").status_code == 429
     with sqlite3.connect(settings.db_path) as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
-        stored = connection.execute("SELECT password_hash FROM users").fetchone()[0]
+        stored = connection.execute("SELECT password_hash FROM auth_users").fetchone()[
+            0
+        ]
         assert stored.startswith("scrypt:") and PASSWORD not in stored
 
 
@@ -321,9 +323,9 @@ def test_concurrent_login_reservations_share_limit(app):
     store = app.extensions["solarbank_store"]
     with ThreadPoolExecutor(max_workers=10) as pool:
         results = list(
-            pool.map(lambda _: store._reserve_login("same-client"), range(10))
+            pool.map(lambda _: store.login("admin", "wrong", "same-client"), range(10))
         )
-    assert sum(attempt is not None for attempt, _ in results) == 5
+    assert sum(retry is None for _, retry in results) == 5
     assert sum(retry is not None for _, retry in results) == 5
 
 
@@ -394,7 +396,7 @@ def test_existing_password_hash_bootstraps_fresh_database(settings, method):
     with sqlite3.connect(settings.db_path) as connection:
         assert (
             connection.execute(
-                "SELECT password_hash FROM users WHERE username = 'admin'"
+                "SELECT password_hash FROM auth_users WHERE username = 'admin'"
             ).fetchone()[0]
             == password_hash
         )
@@ -422,7 +424,7 @@ def test_invalid_seed_hash_fails_startup(settings, password_hash):
 def test_login_returns_opaque_identity_and_session_validates_persisted_user(client):
     identity = login(client).json
     assert identity["username"] == "admin"
-    assert len(identity["id"]) == 64
+    assert len(identity["id"]) == 47 and identity["id"].startswith("fa1_")
     assert identity["id"] != "admin"
     assert (
         client.post(
@@ -444,11 +446,7 @@ def test_login_returns_opaque_identity_and_session_validates_persisted_user(clie
 def test_password_change_invalidates_existing_identity(client, app):
     old_identity = login(client).json
     new_password = "new-password-12345"
-    with app.extensions["solarbank_store"].connection() as connection:
-        connection.execute(
-            "UPDATE users SET password_hash = ? WHERE username = ?",
-            (generate_password_hash(new_password), "admin"),
-        )
+    app.extensions["solarbank_store"].reset_password("admin", new_password)
     assert (
         client.post(
             "/v1/auth/session", headers=HEADERS, json={"id": old_identity["id"]}
@@ -468,7 +466,9 @@ def test_password_change_invalidates_existing_identity(client, app):
 def test_deleted_user_invalidates_existing_identity(client, app):
     identity = login(client).json
     with app.extensions["solarbank_store"].connection() as connection:
-        connection.execute("DELETE FROM users WHERE username = ?", ("admin",))
+        connection.execute("BEGIN IMMEDIATE")
+        accounts = UserStore(connection)
+        accounts.delete(accounts.find("admin").id)
     assert (
         client.post(
             "/v1/auth/session", headers=HEADERS, json={"id": identity["id"]}
@@ -488,7 +488,7 @@ def test_session_survives_restart_but_not_database_reinitialization(client, sett
     )
     with sqlite3.connect(settings.db_path) as connection:
         password_hash = connection.execute(
-            "SELECT password_hash FROM users WHERE username = 'admin'"
+            "SELECT password_hash FROM auth_users WHERE username = 'admin'"
         ).fetchone()[0]
     settings.db_path.unlink()
     reinitialized = create_app(

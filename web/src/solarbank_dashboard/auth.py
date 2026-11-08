@@ -30,11 +30,10 @@ from flask_login import (
     LoginManager,
     UserMixin,
     current_user,
-    login_fresh,
     login_user,
-    logout_user,
 )
 from flask_wtf import CSRFProtect, FlaskForm
+from fluxo_auth import configure_flask_session, session_seconds
 from werkzeug.middleware.proxy_fix import ProxyFix
 from wtforms import PasswordField, StringField, SubmitField
 from wtforms.validators import InputRequired, Length
@@ -58,23 +57,37 @@ class AuthSettings:
     enabled: bool = True
     secret_key: str = field(default="", repr=False)
     secure_cookie: bool = False
-    session_hours: int = 8
+    session_hours: float = 8
     trusted_proxy_count: int = 0
     trusted_hosts: tuple[str, ...] = ()
     session_cookie_name: str | None = None
+    session_lifetime_seconds: int | None = None
 
     def __post_init__(self) -> None:
         if self.enabled and len(self.secret_key) < 32:
             raise ConfigurationError("SECRET_KEY benötigt mindestens 32 Zeichen")
-        if not 1 <= self.session_hours <= 168:
-            raise ConfigurationError("SESSION_HOURS muss zwischen 1 und 168 liegen")
+        try:
+            session_seconds({}, default=self.duration_seconds)
+        except ValueError as error:
+            raise ConfigurationError(str(error)) from error
         if self.trusted_proxy_count not in {0, 1}:
             raise ConfigurationError("TRUST_PROXY muss true oder false sein")
         if self.session_cookie_name is not None:
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", self.session_cookie_name):
                 raise ConfigurationError("SESSION_COOKIE_NAME ist ungültig")
-            if self.session_cookie_name.startswith(("__Host-", "__Secure-")) and not self.secure_cookie:
-                raise ConfigurationError("Der Cookie-Präfix benötigt SESSION_COOKIE_SECURE=true")
+            if (
+                self.session_cookie_name.startswith(("__Host-", "__Secure-"))
+                and not self.secure_cookie
+            ):
+                raise ConfigurationError(
+                    "Der Cookie-Präfix benötigt SESSION_COOKIE_SECURE=true"
+                )
+
+    @property
+    def duration_seconds(self) -> int:
+        if self.session_lifetime_seconds is not None:
+            return session_seconds({}, default=self.session_lifetime_seconds)
+        return session_seconds({"SESSION_HOURS": self.session_hours})
 
     @classmethod
     def from_environment(cls) -> AuthSettings:
@@ -91,14 +104,15 @@ class AuthSettings:
         ):
             raise ConfigurationError("CANONICAL_ORIGIN ist ungültig")
         try:
-            session_hours = int(os.getenv("SESSION_HOURS", "8"))
+            duration_seconds = session_seconds(os.environ)
         except ValueError as error:
             raise ConfigurationError("SESSION_HOURS ist ungültig") from error
         return cls(
             enabled=_boolean_environment("AUTH_ENABLED", True),
             secret_key=os.getenv("SECRET_KEY", ""),
             secure_cookie=_boolean_environment("SESSION_COOKIE_SECURE", False),
-            session_hours=session_hours,
+            session_lifetime_seconds=duration_seconds,
+            session_hours=duration_seconds / 3600,
             trusted_proxy_count=int(_boolean_environment("TRUST_PROXY", False)),
             trusted_hosts=(parsed.hostname, "localhost", "127.0.0.1") if origin else (),
             session_cookie_name=os.environ.get("SESSION_COOKIE_NAME"),
@@ -107,7 +121,7 @@ class AuthSettings:
 
 class LoginForm(FlaskForm):
     username = StringField(
-        validators=[InputRequired(), Length(max=128)], render_kw={"maxlength": 128}
+        validators=[InputRequired(), Length(max=254)], render_kw={"maxlength": 254}
     )
     password = PasswordField(
         validators=[InputRequired(), Length(max=1024)], render_kw={"maxlength": 1024}
@@ -190,10 +204,13 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=config.secure_cookie,
-        SESSION_COOKIE_NAME=config.session_cookie_name or (
+        SESSION_COOKIE_NAME=config.session_cookie_name
+        or (
             "__Host-solarbank_session" if config.secure_cookie else "solarbank_session"
         ),
-        REMEMBER_COOKIE_NAME=(config.session_cookie_name or "solarbank_session") + "_remember",
+        REMEMBER_COOKIE_NAME=(
+            (config.session_cookie_name or "solarbank_session") + "_remember"
+        ),
         REMEMBER_COOKIE_SECURE=config.secure_cookie,
         REMEMBER_COOKIE_HTTPONLY=True,
         REMEMBER_COOKIE_SAMESITE="Lax",
@@ -201,9 +218,15 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
         REMEMBER_COOKIE_DOMAIN=None,
         SESSION_COOKIE_PATH="/",
         SESSION_COOKIE_DOMAIN=None,
-        PERMANENT_SESSION_LIFETIME=timedelta(hours=config.session_hours),
+        PERMANENT_SESSION_LIFETIME=timedelta(seconds=config.duration_seconds),
         SESSION_REFRESH_EACH_REQUEST=False,
-        WTF_CSRF_TIME_LIMIT=config.session_hours * 3600,
+        WTF_CSRF_TIME_LIMIT=config.duration_seconds,
+    )
+    configure_flask_session(
+        app,
+        cookie_name=app.config["SESSION_COOKIE_NAME"],
+        secure=config.secure_cookie,
+        lifetime_seconds=config.duration_seconds,
     )
     # Dash POST callbacks declared read-only by this factory are the only exemption.
     app.config["WTF_CSRF_CHECK_DEFAULT"] = False
@@ -217,7 +240,7 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
             issued = session.get("authenticated_at")
             if (
                 not isinstance(issued, (int, float))
-                or not 0 <= time.time() - issued < config.session_hours * 3600
+                or not 0 <= time.time() - issued < config.duration_seconds
             ):
                 session.clear()
                 flash("Bitte erneut anmelden.", "notice")
@@ -237,7 +260,7 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
             csrf.protect()
 
     manager = LoginManager()
-    manager.session_protection = "strong"
+    manager.session_protection = "basic"
     manager.init_app(app)
 
     @manager.user_loader
@@ -273,17 +296,14 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
         }:
             return None
         if current_user.is_authenticated:
-            if login_fresh():
-                return None
-            logout_user()
-            session.clear()
+            return None
         if request.method in {"GET", "HEAD"} and not request.path.startswith("/_dash-"):
             return redirect(url_for("solarbank_auth_login"))
         return jsonify(error="Anmeldung erforderlich"), 401
 
     @app.route("/login", methods=["GET", "POST"], endpoint="solarbank_auth_login")
     def login() -> Any:
-        if current_user.is_authenticated and login_fresh():
+        if current_user.is_authenticated:
             return redirect("/")
         if request.content_length is not None and request.content_length > 16384:
             abort(413)
@@ -336,12 +356,26 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
     @app.route("/logout", methods=["GET", "POST"], endpoint="solarbank_auth_logout")
     def logout() -> Any:
         form = LogoutForm()
+        # The confirmation page must render without revalidating a stale account.
+        # Keep the stored session until the CSRF-protected POST succeeds.
+        g._login_user = AnonymousUserMixin()
         if request.method == "GET":
             return render_template("logout.html", form=form)
         if not form.validate_on_submit():
             abort(400)
-        # Clear locally even when the API cannot revalidate the previous identity.
-        g._login_user = AnonymousUserMixin()
+        token = session.get("_user_id")
+        if token:
+            try:
+                request_api(
+                    current_app.extensions.get("solarbank_settings")
+                    or Settings.from_environment(),
+                    "/v1/auth/logout",
+                    payload={"id": token},
+                )
+            except ApiError:
+                current_app.logger.warning(
+                    "Abmeldung lokal beendet; API nicht erreichbar."
+                )
         session.clear()
         flash("Abgemeldet.", "notice")
         return redirect(url_for("solarbank_auth_login"))

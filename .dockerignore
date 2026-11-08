@@ -11,6 +11,8 @@
 !collector/**
 !tests/
 !tests/**
+!vendor/
+!vendor/**
 **/node_modules/
 **/.npmrc
 **/__pycache__/

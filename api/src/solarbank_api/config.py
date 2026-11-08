@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from fluxo_auth import session_seconds
+
 
 def _valid_password_hash(value: str) -> bool:
     if len(value) > 1024:
@@ -50,6 +52,7 @@ class Settings:
     admin_password_hash: str = field(default="", repr=False)
     collector_api_token: str = field(default="", repr=False)
 
+    session_lifetime_seconds: int = 28800
     timezone_name: str = "Europe/Berlin"
     poll_interval_seconds: int = 300
     source_timezone_name: str | None = None
@@ -61,6 +64,8 @@ class Settings:
         )
 
     def __post_init__(self) -> None:
+        if not 1 <= self.session_lifetime_seconds <= 31 * 86400:
+            raise ValueError("Ungültige Sitzungsdauer")
         if not 60 <= self.poll_interval_seconds <= 86400:
             raise ValueError("POLL_INTERVAL_SECONDS muss zwischen 60 und 86400 liegen")
         for name, value in (
@@ -93,7 +98,7 @@ class Settings:
         if len(self.secret_key.encode()) < 32 or not self.secret_key.strip():
             raise ValueError("SECRET_KEY muss mindestens 32 Zeichen lang sein")
         if self.admin_username and (
-            len(self.admin_username) > 128
+            len(self.admin_username) > 254
             or any(ord(character) < 32 for character in self.admin_username)
         ):
             raise ValueError("INIT_ADMIN_USERNAME ist ungültig")
@@ -115,6 +120,7 @@ class Settings:
                 "POLL_INTERVAL_SECONDS muss eine ganze Zahl sein"
             ) from error
         return cls(
+            session_lifetime_seconds=session_seconds(os.environ),
             timezone_name=os.getenv("DASHBOARD_TIMEZONE", "Europe/Berlin").strip(),
             source_timezone_name=os.getenv("ANKER_SOURCE_TIMEZONE", "").strip() or None,
             poll_interval_seconds=interval,

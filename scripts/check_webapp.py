@@ -50,6 +50,20 @@ def validate(profile, compose=None):
         require(store.get('storage') in {'sqlite', 'json', 'memory', 'cookie', 'files'}, 'Unbekannte technische Speicherart.')
         if store.get('owner') == 'web':
             require(store.get('purpose') == 'session', 'Webspeicher ist auf technische Sitzungen begrenzt.')
+    auth = profile.get('auth')
+    if auth is not None:
+        if not isinstance(auth, dict):
+            errors.append('Authdeklaration muss ein Objekt sein.')
+        elif auth.get('implementation') == 'fluxo-auth':
+            expected = {'implementation': 'fluxo-auth', 'version': '1.0.0', 'owner': 'api',
+                        'storage': 'sqlite', 'session': 'opaque-server-side'}
+            require(auth == expected, 'Lokale Konten benötigen den gemeinsamen Fluxo-Auth-Vertrag.')
+            require(provisioning == 'managed', 'Gemeinsamer lokaler Authstore gehört zur eigenen API.')
+        elif auth.get('implementation') == 'external':
+            require(auth == {'implementation': 'external', 'owner': 'api'}, 'Externe Identität gehört der API.')
+            require(provisioning == 'existing', 'Externe Identität benötigt den dokumentierten vorhandenen API-Adapter.')
+        else:
+            require(auth == {'implementation': 'none'}, 'Unbekannte Authimplementierung.')
     exceptions = profile.get('exceptions')
     require(isinstance(exceptions, list), 'exceptions muss eine Liste sein.')
     for exception in exceptions if isinstance(exceptions, list) else []:

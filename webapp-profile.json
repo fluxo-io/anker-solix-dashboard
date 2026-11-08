@@ -24,5 +24,12 @@
     ]
   },
   "notifications": "fluxo-notifications/1.0",
-  "exceptions": []
+  "exceptions": [],
+  "auth": {
+    "implementation": "fluxo-auth",
+    "version": "1.0.0",
+    "owner": "api",
+    "storage": "sqlite",
+    "session": "opaque-server-side"
+  }
 }

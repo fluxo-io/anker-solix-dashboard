@@ -16,6 +16,7 @@ COPY docker/entrypoint.py /app/docker/entrypoint.py
 
 FROM base AS api
 COPY api/requirements.txt ./requirements.txt
+COPY vendor/ ./vendor/
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=fluxo:fluxo api/src/ ./src/
 ENV DATA_DIR=/data
@@ -37,6 +38,7 @@ CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/api"]
 
 FROM base AS web
 COPY web/requirements.txt ./requirements.txt
+COPY vendor/ ./vendor/
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=fluxo:fluxo web/src/ ./src/
 COPY --from=assets --chown=fluxo:fluxo /build/web/src/solarbank_dashboard/static/dist ./src/solarbank_dashboard/static/dist
@@ -51,6 +53,8 @@ COPY web/requirements-dev.txt ./requirements-dev.txt
 RUN pip install --no-cache-dir -r requirements-dev.txt
 COPY web/pyproject.toml ./pyproject.toml
 COPY tests/web/ ./tests/web/
+COPY api/src/ ./test-api/
+ENV PYTHONPATH=/app/src:/app/test-api
 USER fluxo
 CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/web"]
 

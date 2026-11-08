@@ -9,6 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from flask import Flask, Response, g, jsonify, request
+from fluxo_auth import session_seconds
 from werkzeug.exceptions import HTTPException
 
 from .config import Settings
@@ -39,6 +40,7 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
             admin_username=app.config.get("INIT_ADMIN_USERNAME", "").strip(),
             admin_password=app.config.get("INIT_ADMIN_PASSWORD", ""),
             admin_password_hash=app.config.get("INIT_ADMIN_PASSWORD_HASH", ""),
+            session_lifetime_seconds=session_seconds(app.config),
             timezone_name=app.config.get("DASHBOARD_TIMEZONE", "Europe/Berlin"),
             poll_interval_seconds=int(app.config.get("POLL_INTERVAL_SECONDS", 300)),
             source_timezone_name=app.config.get("ANKER_SOURCE_TIMEZONE") or None,
@@ -88,7 +90,7 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
                     "collector_state",
                 )
             }
-            | {("POST", "login"), ("POST", "validate_session")},
+            | {("POST", "login"), ("POST", "validate_session"), ("POST", "logout")},
             "collector": {
                 ("POST", "attempt"),
                 ("POST", "failure"),
@@ -219,7 +221,7 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
     @app.post("/v1/auth/login")
     def login() -> tuple[Response, int] | Response:
         data = body()
-        username = text(data.get("username"), "username", limit=128)
+        username = text(data.get("username"), "username", limit=254)
         client_key = text(data.get("client_key"), "client_key", limit=256)
         password = data.get("password")
         if not isinstance(password, str) or not 1 <= len(password) <= 1024:
@@ -236,11 +238,20 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
     @app.post("/v1/auth/session")
     def validate_session() -> tuple[Response, int] | Response:
         user_id = body().get("id")
-        if not isinstance(user_id, str) or len(user_id) != 64:
+        if (
+            not isinstance(user_id, str)
+            or not user_id.startswith("fa1_")
+            or len(user_id) != 47
+        ):
             return jsonify(error="Anmeldung erforderlich"), 401
         user = store.session_user(user_id)
         if user is None:
             return jsonify(error="Anmeldung erforderlich"), 401
         return jsonify(user)
+
+    @app.post("/v1/auth/logout")
+    def logout() -> Response:
+        token = body().get("id")
+        return jsonify(ok=store.logout(token) if isinstance(token, str) else False)
 
     return app
