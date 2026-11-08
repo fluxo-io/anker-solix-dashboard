@@ -26,7 +26,7 @@ Dieser Aufbau, die Dienste `web`/`api`, die gemeinsamen ENV-Namen und die
 Docker-Konfiguration entsprechen `www.fluxo.io`; hier kommt der Collector hinzu.
 Die API ist nur im internen Compose-Netz erreichbar. Web und Collector greifen
 über `API_URL=http://api:8001` mit getrennten Schlüsseln auf sie zu: `API_TOKEN`
-für Web, `COLLECTOR_API_TOKEN` für den Collector. Nur die API öffnet SQLite.
+für Web, `COLLECTOR_API_TOKEN` für den Collector. Nur die API öffnet SQLite und berechnet Energie, Geräte-/Anlagensummen, Frische und Verfügbarkeit. `/v1/dashboard` liefert die fachlich ausgewerteten Daten; Web formatiert sie und zeichnet Diagramme.
 
 `data/` wird vom Docker-Host direkt eingebunden. Host und Container arbeiten auf
 denselben Dateien, Änderungen bleiben auch nach Neubau und Neustart erhalten.
@@ -51,11 +51,15 @@ Alternativ kann `INIT_ADMIN_PASSWORD_HASH` einen vorhandenen sicheren
 Scrypt-/PBKDF2-Hash für den ersten Benutzer enthalten. Ein gesetztes
 Klartextpasswort hat Vorrang. Init-Werte ändern einen vorhandenen Benutzer nicht.
 
-`DATA_DIR` wählt den Host-Datenordner, standardmäßig `./data`.
+`HOST_DATA_DIR` wählt den Host-Datenordner, standardmäßig `./data`. Wenn es nicht
+gesetzt ist, bleibt der bisherige Hostalias `DATA_DIR` wirksam. Beide Werte bezeichnen
+denselben vorhandenen Datenbestand; beim Upgrade keinen neuen leeren Pfad wählen.
+Vor dem Start die Unterordner `db` und `collector` unter diesem Pfad ausdrücklich
+anlegen (beim Standard: `mkdir -p data/db data/collector`).
 
 Die Container bereiten ausschließlich ihren eigenen Daten-Unterordner vor und
-starten danach die Anwendung mit UID/GID 1000. Dadurch funktionieren auch beim
-Start neu angelegte Bind-Mounts. `data/` darf keine symbolischen Links enthalten.
+starten danach die Anwendung mit UID/GID 1000. Fehlende Bind-Mount-Quellen werden
+nicht automatisch angelegt; ein Tippfehler im Hostpfad führt zum Startabbruch. `data/` darf keine symbolischen Links enthalten.
 `.env`, `data/` und `backups/` sind von Git und Docker-Builds ausgeschlossen.
 
 ## Start (Webserver)
@@ -86,7 +90,7 @@ Dashboard: <http://127.0.0.1:8501>. `PORT` ändert den lokalen Port.
 
 Die gemeinsamen Variablen sind `SECRET_KEY`, `API_TOKEN`, `API_URL`,
 `API_TIMEOUT_SECONDS`, `INIT_ADMIN_USERNAME`, `INIT_ADMIN_PASSWORD`,
-`INIT_ADMIN_PASSWORD_HASH`, `PORT`, `DATA_DIR`, `SESSION_COOKIE_SECURE`,
+`INIT_ADMIN_PASSWORD_HASH`, `PORT`, `HOST_DATA_DIR`, `SESSION_COOKIE_NAME`, `SESSION_COOKIE_SECURE`,
 `SESSION_HOURS`, `CANONICAL_ORIGIN`, `TRUST_PROXY` und `REVERSE_PROXY_NETWORK`.
 Der getrennte `COLLECTOR_API_TOKEN` ist ausschließlich für API und Collector bestimmt.
 Die vollständige Vorlage steht in `.env.example`. Compose setzt `API_URL` auf
@@ -108,13 +112,13 @@ veraltete und gültige Werte.
 
 Die vollständige Datenablage liegt auf dem Webserver-Dateisystem und ist für
 berechtigte SSH-/SFTP-Konten sowie Dateibackups erreichbar. Der vorhandene
-`DATA_DIR` und die beiden Unterordner bleiben unverändert. Es wird kein
+`HOST_DATA_DIR` (bisheriger Alias `DATA_DIR`) und die beiden Unterordner bleiben unverändert. Es wird kein
 HTTP-Dateizugriff auf Datenbanken oder Anmeldecaches eingerichtet.
 
 | Bestand | Hostpfad | Snapshotpfad |
 | --- | --- | --- |
-| SQLite einschließlich möglicher Journale | `${DATA_DIR}/db` (Standard `./data/db`) | `sources/database/` |
-| Vollständiger Collectorbestand einschließlich Anker-Anmeldecache und weiterer Dateien | `${DATA_DIR}/collector` (Standard `./data/collector`) | `sources/collector/` |
+| SQLite einschließlich möglicher Journale | `${HOST_DATA_DIR}/db` (Standard `./data/db`) | `sources/database/` |
+| Vollständiger Collectorbestand einschließlich Anker-Anmeldecache und weiterer Dateien | `${HOST_DATA_DIR}/collector` (Standard `./data/collector`) | `sources/collector/` |
 
 Der Collector verwendet `/data` auch für seine persistente temporäre Ablage;
 deshalb wird der gesamte Ordner gesichert. Sein Heartbeat in `/tmp` ist flüchtig
@@ -211,7 +215,7 @@ sich ändern.
 
 Web → API → SQLite ist in `webapp-profile.json` festgehalten. Dash bleibt erhalten; seine fünf lesenden POST-Callbacks sind im Web ausdrücklich klassifiziert. Login, Logout und weitere schreibende Browserrouten benötigen CSRF. Sitzungen besitzen eine absolute Frist (`SESSION_HOURS`); die Anmeldung wird bei alten Cookies ohne Ausstellungszeit einmal erneut verlangt.
 
-Aktionsmeldungen verwenden `@fluxo/web-ui` 1.0.2. Meldungsattribute tragen Text, Kategorie und Ereignis-ID; ein schmaler Adapter reicht Dash-Ereignisse weiter, ohne React-eigene Knoten zu entfernen. Datenfrische und Collectorzustand bleiben dauerhaft sichtbar. Fluxo-Design 0.4.0 und beide Pakete liegen fest in `frontend/vendor/`; keine Laufzeitverbindung zur Bibliothek.
+Aktionsmeldungen verwenden `@fluxo/web-ui` 1.0.2. Dash liefert Text, Kategorie und stabile Ereignis-ID über drei `dcc.Store`-Kanäle. Ein registrierter Clientside-Callback übergibt neue Ereignisse an die gemeinsame Toast-Bibliothek und quittiert sie in einem begrenzten Speicher. Wiederholtes Polling erzeugt keine doppelten Meldungen; eine neue Aktion oder ein erneuter Ausfall nach Erholung darf erneut melden. Es gibt keine DOM-Beobachtung und keinen Eingriff in React-Knoten. Datenfrische und Collectorzustand bleiben dauerhaft sichtbar. Fluxo-Design 0.4.0 und beide Pakete liegen fest in `frontend/vendor/`; keine Laufzeitverbindung zur Bibliothek.
 
 `npm --prefix frontend ci && npm --prefix frontend run build` erzeugt Hashassets und Manifest. Öffentliche Jinja-Seiten und Dash verwenden denselben geprüften Manifest-Lookup. Die Factory akzeptiert Settings/AuthSettings und einen injizierten API-Transport; der Gunicorn-Einstieg ist `solarbank_dashboard.wsgi:server`.
 
@@ -240,7 +244,7 @@ vorhandene private Dashboard; es entstehen keine neuen Benutzer- oder Fachrollen
 
 | Schlüssel / Dienst | Erlaubte Operationen |
 | --- | --- |
-| `API_TOKEN` / Web | GET/HEAD Geräte, Messwerte, letzte Messwerte, Snapshot, Collectorstatus; POST Login und Sessionprüfung |
+| `API_TOKEN` / Web | GET/HEAD Geräte, Dashboardauswertung, Messwerte, letzte Messwerte, Snapshot, Collectorstatus; POST Login und Sessionprüfung |
 | `COLLECTOR_API_TOKEN` / Collector | POST Messwerte, Abrufversuch, Abruffehler; GET/HEAD `/v1/collector/ready` |
 | ohne Schlüssel | GET/HEAD `/healthz`, ausschließlich minimale Bereitschaft |
 
@@ -277,3 +281,63 @@ des bereinigten `dist/`-Ordners und werden vom Docker-Webimage mitkopiert.
 Startadresse und Anzeigemodus werden nicht überschrieben. Bereits gespeicherte
 Verknüpfungen nach dem Deployment bei Bedarf löschen und neu anlegen, damit das
 Gerät sein zwischengespeichertes Icon ersetzt.
+
+
+### ENV-Vertrag
+
+| Variable | Typ / Einheit | Standard | Pflicht / geheim | Zuständigkeit |
+| --- | --- | --- | --- | --- |
+| `SECRET_KEY` | Zufallstext, ≥32 Zeichen | keiner | ja / ja | Web/API: Sitzungs- und Authkonfiguration |
+| `API_TOKEN` | Text, ≥32 Zeichen ohne Leerzeichen | keiner | ja / ja | Web/API: begrenzter Lesedienst |
+| `COLLECTOR_API_TOKEN` | separater Text, ≥32 Zeichen | keiner | Compose ja / ja | Collector/API: begrenzter Schreibdienst |
+| `API_URL` | HTTP(S)-URL | direkt `http://127.0.0.1:8001`, Compose `http://api:8001` | nein / nein | Web/Collector: interne API |
+| `API_TIMEOUT_SECONDS` | ganze Sekunden, 1–60 | `5` | nein / nein | Web/Collector: HTTP-Zeitlimit; Health höchstens 2 Sekunden |
+| `API_DASHBOARD_TIMEOUT_SECONDS` | ganze Sekunden, 1–30 | `20` | nein / nein | Web: Auswertung großer Zeitfenster; normales API- und Healthbudget bleiben getrennt |
+| `HOST_DATA_DIR` | Hostpfad | `./data` | Ordner vorbereiten / nein | API `db/`, Collector `collector/` |
+| `DATA_DIR` | Hostalias / interner Containerpfad | Host `./data`, API `/data` | nein / nein | Hostalias nur ohne `HOST_DATA_DIR`; im API-Container fest `/data` |
+| `PORT` | TCP-Port | `8501` | nein / nein | lokales Web-Overlay |
+| `INIT_ADMIN_USERNAME` | Benutzername | `admin` | initial / nein | API: Startkonto |
+| `INIT_ADMIN_PASSWORD` | Passwort, ≥12 Zeichen | leer | initial Passwort oder Hash / ja | API: Startkonto; danach entfernen |
+| `INIT_ADMIN_PASSWORD_HASH` | Werkzeug-Passworthash | leer | alternativ / ja | API: Startkonto; Klartext hat Vorrang |
+| `SESSION_HOURS` | ganze Stunden, 1–168 | `8` | nein / nein | Web: absolute Sitzungsfrist |
+| `SESSION_COOKIE_NAME` | Cookie-Name, 1–80 Zeichen | `solarbank_session`, bei Secure `__Host-solarbank_session` | nein / nein | Web: je Instanz eigener Namensraum |
+| `SESSION_COOKIE_SECURE` | `true`/`false` | lokal `false`, Server `true` | nein / nein | Web: HTTPS-Cookie |
+| `CANONICAL_ORIGIN` | HTTP(S)-Origin | Server `https://kraftwerk.fluxo.io` | für Server gesetzt / nein | Web: Host-/Origin-Prüfung |
+| `TRUST_PROXY` | `true`/`false` | lokal `false`, Server `true` | nein / nein | Web: ein vertrauenswürdiger Proxy |
+| `REVERSE_PROXY_NETWORK` | Docker-Netzname | `reverse-proxy` | Servernetz bereitstellen / nein | Webserver-Overlay |
+| `AUTH_ENABLED` | `true`/`false` | `true`, Server erzwingt `true` | nein / nein | Web: Anmeldung |
+| `ANKER_USERNAME`, `ANKER_PASSWORD` | Kontodaten | keiner | Collector ja / ja | Collector: Cloud-Anmeldung |
+| `ANKER_COUNTRY` | Ländercode | `DE` | nein / nein | Collector |
+| `ANKER_DEVICE_SN` | Seriennummer | leer = alle | nein / nein | Collector: Geräteauswahl |
+| `ANKER_PAYLOAD_ENCRYPTION` | `true`/`false` | `false` | nein / nein | Collector: Cloud-Nutzlast |
+| `POLL_INTERVAL_SECONDS` | ganze Sekunden, 60–86400 | `300` | nein / nein | API/Web/Collector: Messintervall |
+| `API_REQUEST_TIMEOUT_SECONDS` | Sekunden | `90` | nein / nein | Collector: Cloud-Timeout |
+| `MAX_RETRIES` | ganze Zahl | `2` | nein / nein | Collector: Cloud-Abrufe; keine pauschale Mutation-Wiederholung |
+| `LOG_LEVEL` | Log-Level | `INFO` | nein / nein | Collector: Betriebslogs |
+| `DASHBOARD_TIMEZONE` | IANA-Zeitzone | `Europe/Berlin` | nein / nein | API: Tagesgrenzen; Web: Darstellung |
+| `ANKER_SOURCE_TIMEZONE` | IANA-Zeitzone oder leer | leer | nein / nein | API/Web: Interpretation der Cloud-Messzeit |
+
+Cookies gelten für den Host, unabhängig vom Port. Weitere Instanzen auf derselben
+Domain brauchen unterschiedliche Namen. Path bleibt `/`, Domain bleibt unset;
+`__Host-`/`__Secure-` benötigen Secure. Die App bietet kein Remember-me an; der
+Flask-Login-Cookienamensraum ist vorsorglich ebenfalls instanzbezogen.
+
+Betriebslogs nach stdout/stderr sind von fachlichen Messwerten getrennt. Compose
+rotiert sie mit 3 × 10 MiB je Container. Der technische Collectorstatus beschreibt
+Abrufe; er ersetzt kein vollständiges Benutzeraudit. Messwerte sind Fachbestand
+in SQLite und werden von der API verwaltet. Dieses Projekt führt kein neues
+Audit- oder Statistikmodul allein zur Angleichung ein. Tokens, Passwörter und
+Cloud-Nutzlasten gehören nicht ins Betriebslog.
+
+Die Sicherung bleibt vorbereitet: Inventar und manuelle Werkzeuge sind vorhanden,
+aber kein regelmäßiger Backupjob, Zeitplan oder externes Ziel wird eingerichtet.
+
+
+Die API begrenzt gleichzeitige Dashboardauswertungen auf eine je Gunicorn-Worker
+(zwei Worker mit je vier Threads). Weitere Auswertungen erhalten 503 mit kurzem
+`Retry-After`; Health-, Auth- und Collectoraufrufe behalten freie Threads. Web
+begrenzt Dashboardantworten separat mit `API_DASHBOARD_TIMEOUT_SECONDS` (20 s),
+gewöhnliche API-Aufrufe mit `API_TIMEOUT_SECONDS` (5 s) und Healthabfragen auf
+2 s/16 KiB. HTTP-Healthprobe 3 s, Docker-Healthcheck 5 s. 100.000 synthetische
+Messwerte ergaben lokal 35,46 MiB Antwort und 6,175 s Auswertung; dies ist ein
+Lastnachweis dieser Testumgebung, keine Zusage für die Produktivmaschine.

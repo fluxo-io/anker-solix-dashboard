@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -60,6 +61,7 @@ class AuthSettings:
     session_hours: int = 8
     trusted_proxy_count: int = 0
     trusted_hosts: tuple[str, ...] = ()
+    session_cookie_name: str | None = None
 
     def __post_init__(self) -> None:
         if self.enabled and len(self.secret_key) < 32:
@@ -68,6 +70,11 @@ class AuthSettings:
             raise ConfigurationError("SESSION_HOURS muss zwischen 1 und 168 liegen")
         if self.trusted_proxy_count not in {0, 1}:
             raise ConfigurationError("TRUST_PROXY muss true oder false sein")
+        if self.session_cookie_name is not None:
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", self.session_cookie_name):
+                raise ConfigurationError("SESSION_COOKIE_NAME ist ungültig")
+            if self.session_cookie_name.startswith(("__Host-", "__Secure-")) and not self.secure_cookie:
+                raise ConfigurationError("Der Cookie-Präfix benötigt SESSION_COOKIE_SECURE=true")
 
     @classmethod
     def from_environment(cls) -> AuthSettings:
@@ -94,6 +101,7 @@ class AuthSettings:
             session_hours=session_hours,
             trusted_proxy_count=int(_boolean_environment("TRUST_PROXY", False)),
             trusted_hosts=(parsed.hostname, "localhost", "127.0.0.1") if origin else (),
+            session_cookie_name=os.environ.get("SESSION_COOKIE_NAME"),
         )
 
 
@@ -182,9 +190,15 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=config.secure_cookie,
-        SESSION_COOKIE_NAME="__Host-solarbank_session"
-        if config.secure_cookie
-        else "solarbank_session",
+        SESSION_COOKIE_NAME=config.session_cookie_name or (
+            "__Host-solarbank_session" if config.secure_cookie else "solarbank_session"
+        ),
+        REMEMBER_COOKIE_NAME=(config.session_cookie_name or "solarbank_session") + "_remember",
+        REMEMBER_COOKIE_SECURE=config.secure_cookie,
+        REMEMBER_COOKIE_HTTPONLY=True,
+        REMEMBER_COOKIE_SAMESITE="Lax",
+        REMEMBER_COOKIE_PATH="/",
+        REMEMBER_COOKIE_DOMAIN=None,
         SESSION_COOKIE_PATH="/",
         SESSION_COOKIE_DOMAIN=None,
         PERMANENT_SESSION_LIFETIME=timedelta(hours=config.session_hours),

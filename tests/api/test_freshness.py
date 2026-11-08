@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from solarbank_dashboard.freshness import (
+from solarbank_api.freshness import (
     assess_source_freshness,
     parse_source_timestamp,
 )

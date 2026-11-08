@@ -223,7 +223,17 @@ class Store:
             ).fetchall()
         return [_serialize(row) for row in rows]
 
-    def latest(self, clauses: list[str], parameters: list[str]) -> list[dict[str, Any]]:
+    def measurement_count(self, clauses: list[str], parameters: list[Any]) -> int:
+        with self.connection() as connection:
+            return connection.execute(
+                "SELECT COUNT(*) FROM solarbank_measurements "
+                f"WHERE {' AND '.join(clauses)}",
+                parameters,
+            ).fetchone()[0]
+
+    def latest(
+        self, clauses: list[str], parameters: list[str], *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         with self.connection() as connection:
             rows = connection.execute(
                 f"""
@@ -238,8 +248,9 @@ class Store:
                 SELECT site_id, device_sn, device_name, collected_at,
                        source_updated_at, data_valid
                 FROM ranked WHERE row_number = 1 ORDER BY site_id, device_sn
+                LIMIT ?
             """,
-                parameters,
+                [*parameters, limit if limit is not None else -1],
             ).fetchall()
         return [_serialize(row) for row in rows]
 

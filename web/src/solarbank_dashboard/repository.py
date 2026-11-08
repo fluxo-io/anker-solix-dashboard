@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -20,7 +21,14 @@ SMALL_RESPONSE_BYTES = 1024 * 1024
 
 MAX_RANGE = timedelta(days=90, hours=2)
 MAX_ROWS = 100_000
-TIME_FIELDS = {"bucket_start", "collected_at", "last_attempt_at", "last_success_at"}
+TIME_FIELDS = {
+    "bucket_start",
+    "collected_at",
+    "last_attempt_at",
+    "last_success_at",
+    "source_timestamp",
+    "oldest_timestamp",
+}
 
 
 class ApiError(RuntimeError):
@@ -33,6 +41,31 @@ class ApiError(RuntimeError):
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+def _read_response(response: Any, limit: int, deadline: float) -> bytes:
+    chunks, size = [], 0
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError()
+        # read1 yields after one socket read, including a peer that trickles
+        # bytes. A per-read socket timeout alone is not a response deadline.
+        socket = getattr(
+            getattr(getattr(response, "fp", None), "raw", None), "_sock", None
+        )
+        if socket is not None:
+            socket.settimeout(remaining)
+        reader = getattr(response, "read1", response.read)
+        chunk = reader(min(64 * 1024, limit + 1 - size))
+        if time.monotonic() > deadline:
+            raise TimeoutError()
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+        size += len(chunk)
+        if size > limit:
+            raise ApiError()
 
 
 def request_api(
@@ -61,23 +94,26 @@ def request_api(
         headers["Content-Type"] = "application/json"
         data = json.dumps(payload, allow_nan=False).encode()
     request = Request(url, data=data, headers=headers)
+    budget = settings.api_timeout_seconds
+    if path == "/healthz":
+        budget = min(budget, 2)
+    elif path == "/v1/dashboard":
+        budget = settings.api_dashboard_timeout_seconds
+    deadline = time.monotonic() + budget
     try:
         with build_opener(NoRedirect).open(
             request,
-            timeout=min(settings.api_timeout_seconds, 2)
-            if path == "/healthz"
-            else settings.api_timeout_seconds,
+            timeout=budget,
         ) as response:
             limit = (
                 MAX_RESPONSE_BYTES
-                if path.startswith("/v1/measurements") or path == "/v1/snapshot"
+                if path.startswith("/v1/measurements")
+                or path in {"/v1/snapshot", "/v1/dashboard"}
                 else SMALL_RESPONSE_BYTES
             )
             if path == "/healthz":
                 limit = min(limit, 16384)
-            raw = response.read(limit + 1)
-            if len(raw) > limit:
-                raise ApiError()
+            raw = _read_response(response, limit, deadline)
             result = json.loads(raw)
     except HTTPError as error:
         raw_retry = error.headers.get("Retry-After", "60")
@@ -195,3 +231,56 @@ def fetch_snapshot(
         },
     )["snapshot"]
     return _dates(result) if result else None
+
+
+def fetch_dashboard(
+    settings: Settings,
+    *,
+    start: datetime,
+    end: datetime,
+    site_ids: Sequence[str] = (),
+    devices: Sequence[tuple[str, str]] = (),
+    valid_only: bool = True,
+) -> dict[str, Any]:
+    """Fetch authoritative summaries; never fall back to local calculations."""
+    result = request_api(
+        settings,
+        "/v1/dashboard",
+        params={
+            **_filters(site_ids, devices),
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "valid_only": str(valid_only).lower(),
+        },
+    )
+    try:
+        for key in ("rows", "aggregated"):
+            result[key] = [_dates(row) for row in result[key]]
+        result["freshness"] = _dates(result["freshness"])
+        result["freshness"]["rows"] = [
+            _dates(row) for row in result["freshness"]["rows"]
+        ]
+        result["collector"] = _dates(result["collector"])
+        if (
+            len(result["rows"]) > 5000
+            or len(result["aggregated"]) > MAX_ROWS
+            or len(result["energy"]) > 92
+            or len(result["freshness"]["rows"]) > 1000
+        ):
+            raise ValueError("Oversized dashboard")
+        if (
+            not isinstance(result["kpis"], dict)
+            or not 60 <= result["poll_interval_seconds"] <= 86400
+        ):
+            raise ValueError("Invalid dashboard")
+        for key in ("loaded_count", "filtered_count"):
+            if not isinstance(result[key], int) or result[key] < 0:
+                raise ValueError("Invalid counts")
+        for key in ("truncated", "unknown_source_age"):
+            if not isinstance(result[key], bool):
+                raise ValueError("Invalid dashboard flags")
+        if result["energy_status"] not in {"available", "truncated", "empty"}:
+            raise ValueError("Invalid energy status")
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise ApiError() from None
+    return result

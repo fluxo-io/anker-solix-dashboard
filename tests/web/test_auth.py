@@ -5,6 +5,22 @@ import re
 import pytest
 from flask import Flask
 from solarbank_dashboard.auth import AuthSettings, configure_auth
+
+
+def test_cookie_names_keep_defaults_and_allow_isolated_instances():
+    plain = Flask(__name__)
+    configure_auth(plain, AuthSettings(secret_key="s" * 32))
+    assert plain.config["SESSION_COOKIE_NAME"] == "solarbank_session"
+    secure = Flask(__name__)
+    configure_auth(secure, AuthSettings(secret_key="s" * 32, secure_cookie=True))
+    assert secure.config["SESSION_COOKIE_NAME"] == "__Host-solarbank_session"
+    custom = Flask(__name__)
+    configure_auth(custom, AuthSettings(secret_key="s" * 32, session_cookie_name="solarbank_nord"))
+    assert custom.config["SESSION_COOKIE_NAME"] == "solarbank_nord"
+    assert custom.config["REMEMBER_COOKIE_NAME"] != plain.config["REMEMBER_COOKIE_NAME"]
+    for invalid in ["", "session;other", "session=value", "__Host-insecure"]:
+        with pytest.raises(ValueError):
+            AuthSettings(secret_key="s" * 32, session_cookie_name=invalid)
 from solarbank_dashboard.repository import ApiError
 
 

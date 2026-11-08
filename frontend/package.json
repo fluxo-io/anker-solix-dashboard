@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "build": "webpack --mode production",
-    "check": "node --check src/notifications.js"
+    "check": "node --check src/notifications.js && node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@fluxo/design": "file:vendor/fluxo-design-0.4.0.tgz",

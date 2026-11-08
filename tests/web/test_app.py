@@ -18,11 +18,10 @@ from solarbank_dashboard.app import (
     decode_devices,
     encode_device,
     filter_options,
-    measurement_counts,
+    notification_event,
     resolve_window,
     table_frame,
     table_summary,
-    toast_message,
 )
 from solarbank_dashboard.config import Settings
 from solarbank_dashboard.repository import Device
@@ -103,6 +102,7 @@ def test_table_records_are_json_safe_and_exported_in_german() -> None:
                 "data_valid": False,
                 "pv_reported_total_w": float("nan"),
                 "pv_calculated_total_w": 50.0,
+                "pv_total_w": 50.0,
                 "pv_1_w": 50.0,
             }
         ]
@@ -145,14 +145,7 @@ def test_table_timestamps_remain_unique_across_daylight_saving_fallback() -> Non
 
 
 def test_counts_use_total_match_count_for_truncated_results() -> None:
-    rows = [{"filtered_row_count": 150_000}] * 100_000
-
-    loaded_count, filtered_count = measurement_counts(rows)
-
-    assert (loaded_count, filtered_count) == (100_000, 150_000)
-    assert table_summary(loaded_count, filtered_count) == (
-        "Neueste 5.000 von 150.000 Werten"
-    )
+    assert table_summary(100_000, 150_000) == ("Neueste 5.000 von 150.000 Werten")
 
 
 def test_collector_status_warns_when_last_measurement_is_stale() -> None:
@@ -160,9 +153,10 @@ def test_collector_status_warns_when_last_measurement_is_stale() -> None:
     state = {
         "last_success_at": now - timedelta(minutes=16),
         "consecutive_failures": 0,
+        "status": "stale",
     }
 
-    text, class_name, warning = collector_status(state, _settings(), now=now)
+    text, class_name, warning = collector_status(state, _settings())
 
     assert text.startswith("Abgerufen:")
     assert class_name == "status warning"
@@ -176,14 +170,15 @@ def test_auto_refresh_can_be_disabled() -> None:
     assert auto_refresh_disabled(None) is True
 
 
-def test_toast_message_uses_text_and_event_metadata() -> None:
-    message = toast_message("CSV erstellt.", "success", 3)
-    props = message.to_plotly_json()["props"]
-
-    assert props["children"] == "CSV erstellt."
-    assert props["data-dashboard-notice"] == ""
-    assert props["data-level"] == "success"
-    assert props["data-event-id"] == "3"
+def test_notification_event_is_bounded_data_for_the_store() -> None:
+    event = notification_event("CSV erstellt.", "success", "action:3")
+    assert event["message"] == "CSV erstellt."
+    assert event["level"] == "success"
+    assert len(event["eventId"]) == 64
+    assert event == notification_event("CSV erstellt.", "success", "action:3")
+    assert event != notification_event("CSV erstellt.", "success", "action:4")
+    with pytest.raises(ValueError):
+        notification_event("x" * 1001, "error", "action:3")
 
 
 def test_layout_contains_enabled_auto_refresh() -> None:
@@ -283,10 +278,17 @@ def test_app_shell_has_no_database_dependency() -> None:
     assert response.status_code == 200
     assert dash_app.title == DASHBOARD_TITLE
     assert b"<title>Private Solardatenbank \xc2\xb7 fluxo.io</title>" in response.data
-    assert dash_app.server.extensions["asset_manifest"]["dashboard.css"].encode() in response.data
-    assert dash_app.server.extensions["asset_manifest"]["dashboard.js"].encode() in response.data
+    assert (
+        dash_app.server.extensions["asset_manifest"]["dashboard.css"].encode()
+        in response.data
+    )
+    assert (
+        dash_app.server.extensions["asset_manifest"]["dashboard.js"].encode()
+        in response.data
+    )
     assert b'content="#007aaf"' in response.data
-    assert len(dash_app.callback_map) == 5
+    assert len(dash_app.callback_map) == 6
+    assert "notification-ack.data" in dash_app.callback_map
     assert "auto-refresh-interval.disabled" in dash_app.callback_map
 
     dashboard_callback = next(
@@ -332,6 +334,7 @@ def test_health_fails_when_schema_is_unavailable(
 def test_dashboard_callback_renders_energy_and_keeps_refresh_revision(
     monkeypatch: pytest.MonkeyPatch,
     has_rows: bool,
+    dashboard_data,
 ) -> None:
     now = datetime.now(UTC).replace(second=0, microsecond=0)
     rows = (
@@ -360,17 +363,44 @@ def test_dashboard_callback_renders_energy_and_keeps_refresh_revision(
         else []
     )
     monkeypatch.setattr(app_module, "settings", _settings)
-    monkeypatch.setattr(app_module, "fetch_measurements", lambda *args, **kwargs: rows)
-    monkeypatch.setattr(
-        app_module, "fetch_latest_measurements", lambda *args, **kwargs: rows
+    dashboard_data.update(
+        {
+            "rows": [{**row, "pv_total_w": 777.0} for row in rows],
+            "aggregated": [
+                {"bucket_start": now, "pv_total_w": 777.0, "battery_soc_pct": 42.0}
+            ]
+            if rows
+            else [],
+            "loaded_count": len(rows),
+            "filtered_count": len(rows),
+            "energy_status": "available" if rows else "empty",
+            "energy": [
+                {
+                    "day": "2026-10-01",
+                    **{key: 12.345 for key in app_module.ENERGY_METRICS},
+                    **{
+                        key.replace("_kwh", "_coverage_pct"): 73.0
+                        for key in app_module.ENERGY_METRICS
+                    },
+                }
+            ]
+            if rows
+            else [],
+            "kpis": {
+                "pv_total_w": 777.0,
+                "battery_soc_pct": 42.0,
+                "home_load_w": 888.0,
+                "grid_power_w": -99.0,
+            },
+            "collector": {
+                "last_success_at": now,
+                "consecutive_failures": 0,
+                "status": "fresh",
+            },
+        }
     )
     monkeypatch.setattr(
-        app_module,
-        "fetch_collector_state",
-        lambda *args: {
-            "last_success_at": now,
-            "consecutive_failures": 0,
-        },
+        app_module, "fetch_dashboard", lambda *args, **kwargs: dashboard_data
     )
     dash_app = create_app()
     callback = next(
@@ -387,5 +417,11 @@ def test_dashboard_callback_renders_energy_and_keeps_refresh_revision(
         assert first[8].layout.uirevision == second[8].layout.uirevision
         assert first[11][0]["_timestamp"]
         assert len(first[16].data) == 6
+        # Deliberately inconsistent with raw samples: the API values win.
+        assert first[4] == "777 W"
+        assert first[5] == "42 %"
+        assert first[11][0]["pv_total_w"] == 777.0
+        assert first[16].data[0].y[0] == 12.345
+        assert first[16].data[0].customdata[0] == 73.0
         changed = update("7 Tage", None, None, [], [], ["valid"], 0, 1)
         assert first[8].layout.uirevision != changed[8].layout.uirevision

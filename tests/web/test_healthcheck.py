@@ -13,7 +13,7 @@ def test_healthcheck_uses_internal_web_port(monkeypatch):
 
     def open_url(url, timeout):
         assert url == "http://127.0.0.1:8000/healthz"
-        assert timeout == 5
+        assert timeout == 3
         return Response()
 
     monkeypatch.setattr(healthcheck, "urlopen", open_url)

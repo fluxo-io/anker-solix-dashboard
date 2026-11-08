@@ -33,6 +33,20 @@ def _api_timeout() -> int:
     return value
 
 
+def _dashboard_api_timeout() -> int:
+    try:
+        value = int(os.getenv("API_DASHBOARD_TIMEOUT_SECONDS", "20"))
+    except ValueError as error:
+        raise ConfigurationError(
+            "API_DASHBOARD_TIMEOUT_SECONDS ist ungültig"
+        ) from error
+    if not 1 <= value <= 30:
+        raise ConfigurationError(
+            "API_DASHBOARD_TIMEOUT_SECONDS muss zwischen 1 und 30 liegen"
+        )
+    return value
+
+
 def _api_url() -> str:
     from urllib.parse import urlsplit
 
@@ -83,6 +97,7 @@ class Settings:
     source_timezone_name: str | None = None
 
     api_timeout_seconds: int = 5
+    api_dashboard_timeout_seconds: int = 20
 
     @classmethod
     def from_environment(cls) -> Settings:
@@ -102,6 +117,7 @@ class Settings:
 
         return cls(
             api_timeout_seconds=_api_timeout(),
+            api_dashboard_timeout_seconds=_dashboard_api_timeout(),
             api_url=_api_url(),
             api_token=_api_token(),
             timezone_name=timezone_name,

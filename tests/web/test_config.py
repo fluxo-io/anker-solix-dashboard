@@ -12,6 +12,8 @@ def _environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "DASHBOARD_TIMEZONE",
         "POLL_INTERVAL_SECONDS",
         "ANKER_SOURCE_TIMEZONE",
+        "API_DASHBOARD_TIMEOUT_SECONDS",
+        "API_TIMEOUT_SECONDS",
     ]:
         monkeypatch.delenv(name, raising=False)
     for name, value in values.items():
@@ -27,6 +29,24 @@ def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.poll_interval_seconds == 300
     assert settings.api_token == "t" * 32
     assert settings.source_timezone is None
+    assert settings.api_timeout_seconds == 5
+    assert settings.api_dashboard_timeout_seconds == 20
+
+
+@pytest.mark.parametrize("value", ["0", "31", "invalid"])
+def test_dashboard_timeout_has_separate_finite_budget(monkeypatch, value):
+    _environment(monkeypatch)
+    monkeypatch.setenv("API_DASHBOARD_TIMEOUT_SECONDS", value)
+    with pytest.raises(ConfigurationError, match="API_DASHBOARD_TIMEOUT_SECONDS"):
+        Settings.from_environment()
+
+
+def test_dashboard_timeout_does_not_change_normal_timeout(monkeypatch):
+    _environment(monkeypatch)
+    monkeypatch.setenv("API_DASHBOARD_TIMEOUT_SECONDS", "15")
+    config = Settings.from_environment()
+    assert config.api_dashboard_timeout_seconds == 15
+    assert config.api_timeout_seconds == 5
 
 
 def test_explicit_source_timezone(monkeypatch: pytest.MonkeyPatch) -> None:

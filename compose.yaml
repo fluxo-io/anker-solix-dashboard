@@ -34,8 +34,15 @@ services:
       INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:-}
       INIT_ADMIN_PASSWORD_HASH: ${INIT_ADMIN_PASSWORD_HASH:-}
       DATA_DIR: /data
+      DASHBOARD_TIMEZONE: ${DASHBOARD_TIMEZONE:-Europe/Berlin}
+      ANKER_SOURCE_TIMEZONE: ${ANKER_SOURCE_TIMEZONE:-}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-300}
     volumes:
-      - ${DATA_DIR:-./data}/db:/data
+      - type: bind
+        source: ${HOST_DATA_DIR-${DATA_DIR:-./data}}/db
+        target: /data
+        bind:
+          create_host_path: false
     networks: [backend]
 
   web:
@@ -48,7 +55,9 @@ services:
       API_URL: http://api:8001
       API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env}
       API_TIMEOUT_SECONDS: ${API_TIMEOUT_SECONDS:-5}
+      API_DASHBOARD_TIMEOUT_SECONDS: ${API_DASHBOARD_TIMEOUT_SECONDS:-20}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      SESSION_COOKIE_NAME:
       SESSION_HOURS: ${SESSION_HOURS:-8}
       CANONICAL_ORIGIN: ${CANONICAL_ORIGIN:-}
       TRUST_PROXY: ${TRUST_PROXY:-false}
@@ -82,7 +91,11 @@ services:
       MAX_RETRIES: ${MAX_RETRIES:-2}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
-      - ${DATA_DIR:-./data}/collector:/data
+      - type: bind
+        source: ${HOST_DATA_DIR-${DATA_DIR:-./data}}/collector
+        target: /data
+        bind:
+          create_host_path: false
     depends_on:
       api:
         condition: service_healthy

@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
-from solarbank_dashboard.energy import ENERGY_METRICS, daily_energy
+from solarbank_api.energy import ENERGY_METRICS, daily_energy
 
 START = datetime(2026, 9, 20, tzinfo=UTC)
 

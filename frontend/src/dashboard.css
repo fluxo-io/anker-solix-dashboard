@@ -1050,9 +1050,5 @@ input:focus-visible {
   }
 }
 
-/* Only JS-consumed event sources are hidden; React retains their ownership. */
-.notifications-ready [data-dashboard-notice],
-.notifications-ready .message:has(> [data-dashboard-notice]):not(:has(> span:not([data-dashboard-notice]))) { display: none; }
-
 /* Keep Plotly resize transitions inside their panel on small screens. */
 .dash-graph { max-width: 100%; overflow-x: auto; }

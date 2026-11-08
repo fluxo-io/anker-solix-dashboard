@@ -4,6 +4,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 COPY frontend/vendor ./vendor
 RUN npm ci --no-audit --no-fund
 COPY frontend/src ./src
+COPY frontend/tests ./tests
 COPY frontend/webpack.config.cjs ./
 RUN npm run check && npm run build
 

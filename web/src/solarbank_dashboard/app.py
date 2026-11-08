@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -12,23 +13,27 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import dash_ag_grid as dag
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, ctx, dcc, html
-from flask import Flask, current_app, has_app_context, has_request_context, jsonify, render_template
+from dash import ClientsideFunction, Dash, Input, Output, State, ctx, dcc, html
+from flask import (
+    Flask,
+    current_app,
+    has_app_context,
+    has_request_context,
+    jsonify,
+    render_template,
+)
 
 from solarbank_dashboard.assets import install_assets
 from solarbank_dashboard.auth import AuthSettings, configure_auth
-from solarbank_dashboard.charts import aggregate_measurements, line_figure
+from solarbank_dashboard.charts import line_figure
 from solarbank_dashboard.config import ConfigurationError, Settings
-from solarbank_dashboard.details import freshness_view, snapshot_view, source_frame
-from solarbank_dashboard.energy import daily_energy
+from solarbank_dashboard.details import freshness_view, snapshot_view
 from solarbank_dashboard.public_pages import register_public_pages
 from solarbank_dashboard.repository import (
     ApiError,
     Device,
-    fetch_collector_state,
+    fetch_dashboard,
     fetch_devices,
-    fetch_latest_measurements,
-    fetch_measurements,
     fetch_snapshot,
     verify_schema,
 )
@@ -170,21 +175,15 @@ def format_timestamp(value: datetime | None, config: Settings) -> str:
     return value.astimezone(config.timezone).strftime("%d.%m.%Y %H:%M")
 
 
-def toast_message(message: str, kind: str, event_id: int | None = None) -> Any:
-    attributes: dict[str, str] = {
-        "data-dashboard-notice": "",
-        "data-level": kind,
+def notification_event(message: str, kind: str, event_id: object) -> dict[str, str]:
+    """Bounded data for Dash; React nodes are never scanned or removed."""
+    if kind not in {"success", "info", "warning", "error"} or len(message) > 1000:
+        raise ValueError("Invalid notification event")
+    return {
+        "message": message,
+        "level": kind,
+        "eventId": hashlib.sha256(str(event_id).encode()).hexdigest(),
     }
-    if event_id is not None:
-        attributes["data-event-id"] = str(event_id)
-    return html.Span(message, **attributes)
-
-
-def latest_value(frame: pd.DataFrame, column: str) -> float | None:
-    if frame.empty or column not in frame:
-        return None
-    value = frame.sort_values("bucket_start").iloc[-1][column]
-    return None if pd.isna(value) else float(value)
 
 
 def dashboard_today(now: datetime | None = None) -> date:
@@ -269,20 +268,6 @@ def measurement_frame(rows: list[dict[str, Any]], config: Settings) -> pd.DataFr
     return frame
 
 
-def _display_pv_total(frame: pd.DataFrame) -> pd.Series:
-    reported = frame.get("pv_reported_total_w")
-    calculated = frame.get("pv_calculated_total_w")
-    if reported is None:
-        return (
-            calculated
-            if calculated is not None
-            else pd.Series(index=frame.index, dtype="float64")
-        )
-    if calculated is None:
-        return reported
-    return reported.combine_first(calculated)
-
-
 def _timestamp_with_offset(value: Any, pattern: str) -> str | None:
     if value is None or pd.isna(value):
         return None
@@ -297,7 +282,6 @@ def table_frame(frame: pd.DataFrame, *, limit: int | None = None) -> pd.DataFram
     if frame.empty:
         return pd.DataFrame(columns=TABLE_COLUMNS)
     display_frame = frame.copy()
-    display_frame["pv_total_w"] = _display_pv_total(display_frame)
     table = display_frame.reindex(columns=TABLE_COLUMNS).sort_values(
         "bucket_start", ascending=False
     )
@@ -316,14 +300,6 @@ def format_validity(value: Any) -> str | None:
     if value is None or pd.isna(value):
         return None
     return "Ja" if bool(value) else "Nein"
-
-
-def measurement_counts(rows: list[dict[str, Any]]) -> tuple[int, int]:
-    loaded_count = len(rows)
-    if not rows:
-        return 0, 0
-    filtered_count = int(rows[0].get("filtered_row_count") or loaded_count)
-    return loaded_count, filtered_count
 
 
 def table_summary(loaded_count: int, filtered_count: int) -> str:
@@ -386,27 +362,19 @@ def graph_figures(
 
 
 def collector_status(
-    state: dict[str, Any] | None,
-    config: Settings,
-    *,
-    now: datetime | None = None,
+    state: dict[str, Any], config: Settings
 ) -> tuple[str, str, str | None]:
-    if state is None or state.get("last_success_at") is None:
+    """Format the API's collector verdict."""
+    if state["status"] == "missing":
         return "Noch kein gültiger Abruf", "status warning", None
     timestamp = format_timestamp(state["last_success_at"], config)
-    failures = int(state.get("consecutive_failures") or 0)
-    if failures:
+    if state["status"] == "failed":
         return (
             f"Abgerufen: {timestamp}",
             "status warning",
-            f"Collector: {failures} Fehler",
+            f"Collector: {state['consecutive_failures']} Fehler",
         )
-    current = now or datetime.now(UTC)
-    last_success = state["last_success_at"]
-    if last_success.tzinfo is None:
-        last_success = last_success.replace(tzinfo=UTC)
-    stale_after = timedelta(seconds=config.poll_interval_seconds * 3)
-    if current - last_success.astimezone(UTC) > stale_after:
+    if state["status"] == "stale":
         return (
             f"Abgerufen: {timestamp}",
             "status warning",
@@ -982,10 +950,31 @@ def build_layout(*, auth_enabled: bool = False) -> html.Div:
         href="#main-content",
         className="skip-link",
     )
-    return html.Div([skip_link, app_header, sidebar, main], className="app-shell")
+    return html.Div(
+        [
+            skip_link,
+            app_header,
+            sidebar,
+            main,
+            dcc.Store(id="notification-filter", storage_type="memory"),
+            dcc.Store(id="notification-data", storage_type="memory"),
+            dcc.Store(id="notification-snapshot", storage_type="memory"),
+            dcc.Store(id="notification-ack", storage_type="memory", data={}),
+        ],
+        className="app-shell",
+    )
 
 
 def register_callbacks(dash_app: Dash) -> None:
+    dash_app.clientside_callback(
+        ClientsideFunction(namespace="fluxo", function_name="consumeNotifications"),
+        Output("notification-ack", "data"),
+        Input("notification-filter", "data"),
+        Input("notification-data", "data"),
+        Input("notification-snapshot", "data"),
+        State("notification-ack", "data"),
+    )
+
     @dash_app.callback(
         Output("auto-refresh-interval", "disabled"),
         Input("auto-refresh-toggle", "value"),
@@ -1005,6 +994,7 @@ def register_callbacks(dash_app: Dash) -> None:
         Output("device-filter", "options"),
         Output("device-filter", "value"),
         Output("filter-message", "children"),
+        Output("notification-filter", "data"),
         Input("reload-button", "n_clicks"),
         Input("site-filter", "value"),
         State("device-filter", "value"),
@@ -1013,7 +1003,7 @@ def register_callbacks(dash_app: Dash) -> None:
         _reloads: int,
         selected_sites: list[str] | None,
         selected_devices: list[str] | None,
-    ) -> tuple[list[dict[str, str]], list[dict[str, str]], list[str], str]:
+    ) -> tuple[Any, ...]:
         try:
             devices = fetch_devices(settings())
             site_options, device_options = filter_options(devices, selected_sites)
@@ -1023,7 +1013,8 @@ def register_callbacks(dash_app: Dash) -> None:
                 [],
                 [],
                 [],
-                toast_message(
+                "",
+                notification_event(
                     "Filter konnten nicht geladen werden. Bitte erneut versuchen.",
                     "error",
                     f"filters:{_reloads}:{selected_sites}",
@@ -1033,7 +1024,7 @@ def register_callbacks(dash_app: Dash) -> None:
         retained = [
             value for value in selected_devices or [] if value in eligible_values
         ]
-        return site_options, device_options, retained, ""
+        return site_options, device_options, retained, "", None
 
     @dash_app.callback(
         Output("collector-status", "children"),
@@ -1056,6 +1047,7 @@ def register_callbacks(dash_app: Dash) -> None:
         Output("energy-table", "children"),
         Output("energy-summary", "children"),
         Output("grid-paths-chart", "figure"),
+        Output("notification-data", "data"),
         Input("period-filter", "value"),
         Input("custom-range", "start_date"),
         Input("custom-range", "end_date"),
@@ -1092,7 +1084,7 @@ def register_callbacks(dash_app: Dash) -> None:
         try:
             config = settings()
             window = resolve_window(period, start_value, end_value, config)
-            rows = fetch_measurements(
+            data = fetch_dashboard(
                 config,
                 start=window.start,
                 end=window.end,
@@ -1100,22 +1092,12 @@ def register_callbacks(dash_app: Dash) -> None:
                 devices=decode_devices(device_values),
                 valid_only="valid" in (valid_values or []),
             )
-            state = fetch_collector_state(config)
-            latest_rows = fetch_latest_measurements(
-                config,
-                site_ids=tuple(sites or []),
-                devices=decode_devices(device_values),
-            )
         except ValueError:
             return (
                 "Filter prüfen",
                 "status error",
-                toast_message(
-                    "Bitte prüfe die gewählten Filter.",
-                    "error",
-                    f"filter-validation:{_reloads}:{period}:{start_value}:{end_value}:{device_values}",
-                ),
-                "message error",
+                "",
+                "message is-hidden",
                 "–",
                 "–",
                 "–",
@@ -1124,18 +1106,19 @@ def register_callbacks(dash_app: Dash) -> None:
                 [],
                 "0 Werte",
                 *extra,
+                notification_event(
+                    "Bitte prüfe die gewählten Filter.",
+                    "error",
+                    f"filter-validation:{_reloads}:{period}:{start_value}:{end_value}:{device_values}",
+                ),
             )
         except (ConfigurationError, ApiError, RuntimeError):
             LOGGER.exception("Dashboard-Daten konnten nicht geladen werden")
             return (
                 "Daten nicht verfügbar",
                 "status error",
-                toast_message(
-                    "Messwerte konnten nicht geladen werden. Bitte erneut versuchen.",
-                    "error",
-                    f"measurements:{_reloads}:{period}:{sites}:{device_values}",
-                ),
-                "message error",
+                "",
+                "message is-hidden",
                 "–",
                 "–",
                 "–",
@@ -1144,25 +1127,41 @@ def register_callbacks(dash_app: Dash) -> None:
                 [],
                 "0 Werte",
                 *extra,
+                notification_event(
+                    "Messwerte konnten nicht geladen werden. Bitte erneut versuchen.",
+                    "error",
+                    f"measurements:{_reloads}:{period}:{sites}:{device_values}",
+                ),
             )
 
         manual_refresh = has_request_context() and ctx.triggered_id == "reload-button"
         refreshed = (
-            toast_message(
+            notification_event(
                 "Daten aktualisiert.", "success", f"reload-success:{_reloads}"
             )
             if manual_refresh
             else None
         )
-        status_text, status_class, collector_warning = collector_status(state, config)
-        source_text, source_class, source_details = freshness_view(latest_rows, config)
+        status_text, status_class, collector_warning = collector_status(
+            data["collector"], config
+        )
+        source_text, source_class, source_details = freshness_view(
+            data["freshness"], config
+        )
+        rows = data["rows"]
         if not rows:
-            message = collector_warning or "Keine Daten für diesen Filter."
+            message = (
+                "Zu viele Werte. Bitte Zeitraum verkürzen."
+                if data["truncated"]
+                else collector_warning
+            ) or "Keine Daten für diesen Filter."
             return (
                 status_text,
                 status_class,
-                [html.Span(message), refreshed] if refreshed else message,
-                "message warning" if collector_warning else "message info",
+                message,
+                "message warning"
+                if collector_warning or data["truncated"]
+                else "message info",
                 "–",
                 "–",
                 "–",
@@ -1177,20 +1176,11 @@ def register_callbacks(dash_app: Dash) -> None:
                 [],
                 "Keine Energiedaten.",
                 empty_figure(),
+                refreshed,
             )
 
-        frame = source_frame(measurement_frame(rows, config), config)
-        chart_frame = frame.copy()
-        # Keep rejected readings visible in the raw table, but never draw them
-        # as a valid power curve or count them toward an energy estimate.
-        power_columns = [column for column in chart_frame if column.endswith("_w")]
-        chart_frame.loc[
-            chart_frame["source_stale"], [*power_columns, "battery_soc_pct"]
-        ] = float("nan")
-        expected_devices = [(row["site_id"], row["device_sn"]) for row in latest_rows]
-        aggregated = aggregate_measurements(
-            chart_frame, expected_devices=expected_devices
-        )
+        frame = measurement_frame(rows, config)
+        aggregated = measurement_frame(data["aggregated"], config)
         revision = json.dumps(
             [
                 period,
@@ -1202,7 +1192,9 @@ def register_callbacks(dash_app: Dash) -> None:
             ]
         )
         figures = graph_figures(
-            aggregated, revision=revision, interval_seconds=config.poll_interval_seconds
+            aggregated,
+            revision=revision,
+            interval_seconds=data["poll_interval_seconds"],
         )
         grid_data = table_frame(frame, limit=TABLE_ROW_LIMIT).to_dict("records")
         selected_rows = frame.sort_values("bucket_start", ascending=False).head(
@@ -1215,50 +1207,43 @@ def register_callbacks(dash_app: Dash) -> None:
             record["_row_id"] = json.dumps(
                 [record["_timestamp"], record["site_id"], record["device_sn"]]
             )
-        loaded_count, filtered_count = measurement_counts(rows)
+        loaded_count, filtered_count = data["loaded_count"], data["filtered_count"]
         warnings = [collector_warning] if collector_warning else []
-        if filtered_count > len(rows):
+        if data["truncated"]:
             warnings.append("Zu viele Werte. Bitte Zeitraum verkürzen.")
         message = " · ".join(warnings)
         message_class = "message warning" if warnings else "message is-hidden"
         summary = table_summary(loaded_count, filtered_count)
-        if filtered_count > loaded_count:
+        if data["energy_status"] == "truncated":
             energy_figure, energy_table = empty_figure("Zeitraum verkürzen"), []
             energy_summary = "Für die Energiebilanz bitte den Zeitraum verkürzen."
         else:
-            energy = daily_energy(
-                frame,
-                window.start,
-                window.end,
-                config.timezone_name,
-                config.poll_interval_seconds,
-                expected_devices=expected_devices,
-            )
+            energy = pd.DataFrame(data["energy"])
             energy_figure, energy_table = energy_view(energy, revision)
             energy_summary = (
                 "Fehlende oder veraltete Werte werden nicht hochgerechnet. "
                 "Randtage beziehen sich nur auf den gewählten Zeitraum."
             )
-            if frame["source_status"].isin(["missing", "unknown_timezone"]).any():
+            if data["unknown_source_age"]:
                 energy_summary += " Das Alter einzelner Cloud-Messwerte ist unbekannt."
         grid_paths = line_figure(
             aggregated,
             ["grid_import_w", "grid_export_w", "grid_to_home_w", "grid_to_battery_w"],
             y_title="W",
             revision=revision,
-            interval_seconds=config.poll_interval_seconds,
+            interval_seconds=data["poll_interval_seconds"],
         )
 
-        state_of_charge = latest_value(aggregated, "battery_soc_pct")
+        state_of_charge = data["kpis"]["battery_soc_pct"]
         return (
             status_text,
             status_class,
-            [html.Span(message), refreshed] if refreshed else message,
-            "message" if refreshed and not warnings else message_class,
-            format_power(latest_value(aggregated, "pv_total_w")),
+            message,
+            message_class,
+            format_power(data["kpis"]["pv_total_w"]),
             ("–" if state_of_charge is None else f"{german_number(state_of_charge)} %"),
-            format_power(latest_value(aggregated, "home_load_w")),
-            format_grid(latest_value(aggregated, "grid_power_w")),
+            format_power(data["kpis"]["home_load_w"]),
+            format_grid(data["kpis"]["grid_power_w"]),
             *figures,
             grid_data,
             summary,
@@ -1269,16 +1254,18 @@ def register_callbacks(dash_app: Dash) -> None:
             energy_table,
             energy_summary,
             grid_paths,
+            refreshed,
         )
 
     @dash_app.callback(
         Output("snapshot-details", "children"),
+        Output("notification-snapshot", "data"),
         Input("measurement-grid", "selectedRows"),
         prevent_initial_call=True,
     )
     def show_snapshot(selected: list[dict[str, Any]] | None) -> Any:
         if not selected:
-            return "Eine Zeile auswählen, um die Rohdaten einzusehen."
+            return "Eine Zeile auswählen, um die Rohdaten einzusehen.", None
         try:
             row = selected[0]
             config = settings()
@@ -1289,15 +1276,15 @@ def register_callbacks(dash_app: Dash) -> None:
                 device_sn=row["device_sn"],
             )
             if snapshot is None:
-                return toast_message(
+                return "Keine Details verfügbar.", notification_event(
                     "Messwert ist nicht mehr verfügbar.",
                     "warning",
                     f"snapshot-missing:{row}",
                 )
-            return snapshot_view(snapshot, config)
+            return snapshot_view(snapshot, config), None
         except (KeyError, TypeError, ValueError, ConfigurationError, ApiError):
             LOGGER.exception("Messwertdetails konnten nicht geladen werden")
-            return toast_message(
+            return "Keine Details verfügbar.", notification_event(
                 "Details konnten nicht geladen werden. Bitte erneut versuchen.",
                 "error",
                 f"snapshot-error:{selected}",
@@ -1308,7 +1295,9 @@ class ShortcutDash(Dash):
     """Share shortcut metadata with the public Jinja documents."""
 
     def interpolate_index(self, **kwargs):
-        kwargs["favicon"] = kwargs.get("favicon", "") + render_template("shortcut_icons.html")
+        kwargs["favicon"] = kwargs.get("favicon", "") + render_template(
+            "shortcut_icons.html"
+        )
         return super().interpolate_index(**kwargs)
 
 
@@ -1355,7 +1344,7 @@ def create_app(
     dash_app.server.extensions["solarbank_read_callbacks"] = frozenset(
         key
         for key, metadata in dash_app.callback_map.items()
-        if metadata.get("callback").__name__
+        if getattr(metadata.get("callback"), "__name__", "")
         in {
             "toggle_auto_refresh",
             "toggle_custom_range",

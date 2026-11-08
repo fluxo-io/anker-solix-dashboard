@@ -4,6 +4,7 @@ import os
 import string
 from dataclasses import dataclass, field
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def _valid_password_hash(value: str) -> bool:
@@ -49,7 +50,28 @@ class Settings:
     admin_password_hash: str = field(default="", repr=False)
     collector_api_token: str = field(default="", repr=False)
 
+    timezone_name: str = "Europe/Berlin"
+    poll_interval_seconds: int = 300
+    source_timezone_name: str | None = None
+
+    @property
+    def source_timezone(self) -> ZoneInfo | None:
+        return (
+            ZoneInfo(self.source_timezone_name) if self.source_timezone_name else None
+        )
+
     def __post_init__(self) -> None:
+        if not 60 <= self.poll_interval_seconds <= 86400:
+            raise ValueError("POLL_INTERVAL_SECONDS muss zwischen 60 und 86400 liegen")
+        for name, value in (
+            ("DASHBOARD_TIMEZONE", self.timezone_name),
+            ("ANKER_SOURCE_TIMEZONE", self.source_timezone_name),
+        ):
+            if value is not None:
+                try:
+                    ZoneInfo(value)
+                except (ZoneInfoNotFoundError, ValueError) as error:
+                    raise ValueError(f"{name} ist ungültig") from error
         if not self.db_path.is_absolute():
             raise ValueError("DATA_DIR muss ein absoluter Pfad sein")
         if len(self.api_token.encode()) < 32 or not self.api_token.strip():
@@ -86,7 +108,16 @@ class Settings:
 
     @classmethod
     def from_environment(cls) -> Settings:
+        try:
+            interval = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))
+        except ValueError as error:
+            raise ValueError(
+                "POLL_INTERVAL_SECONDS muss eine ganze Zahl sein"
+            ) from error
         return cls(
+            timezone_name=os.getenv("DASHBOARD_TIMEZONE", "Europe/Berlin").strip(),
+            source_timezone_name=os.getenv("ANKER_SOURCE_TIMEZONE", "").strip() or None,
+            poll_interval_seconds=interval,
             db_path=Path(os.getenv("DATA_DIR", "/data")) / "app.sqlite3",
             api_token=os.getenv("API_TOKEN", ""),
             collector_api_token=os.getenv("COLLECTOR_API_TOKEN", ""),

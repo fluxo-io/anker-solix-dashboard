@@ -4,6 +4,7 @@ import hmac
 import json
 import sqlite3
 from pathlib import Path
+from threading import BoundedSemaphore
 from typing import Any
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ from flask import Flask, Response, g, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 from .config import Settings
+from .dashboard import MAX_DASHBOARD_BYTES, dashboard
 from .store import Store
 from .validation import (
     MAX_BATCH,
@@ -37,12 +39,19 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
             admin_username=app.config.get("INIT_ADMIN_USERNAME", "").strip(),
             admin_password=app.config.get("INIT_ADMIN_PASSWORD", ""),
             admin_password_hash=app.config.get("INIT_ADMIN_PASSWORD_HASH", ""),
+            timezone_name=app.config.get("DASHBOARD_TIMEZONE", "Europe/Berlin"),
+            poll_interval_seconds=int(app.config.get("POLL_INTERVAL_SECONDS", 300)),
+            source_timezone_name=app.config.get("ANKER_SOURCE_TIMEZONE") or None,
         )
     else:
         settings = Settings.from_environment()
     store = Store(settings)
     store.initialize()
     app.extensions["solarbank_store"] = store
+    # At most one CPU/memory-heavy evaluation per worker. Gunicorn's remaining
+    # threads stay available for health/auth/collector operations; never queue
+    # expensive calculations until every request thread is occupied.
+    dashboard_slots = BoundedSemaphore(1)
 
     @app.before_request
     def require_api_token() -> tuple[Response, int] | None:
@@ -72,6 +81,7 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
                 for method in ("GET", "HEAD")
                 for endpoint in (
                     "devices",
+                    "dashboard_view",
                     "measurements",
                     "latest",
                     "snapshot",
@@ -136,6 +146,24 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
     def collector_ready() -> tuple[Response, int]:
         # Checks the write actor before any source request or mutation is attempted.
         return health()
+
+    @app.get("/v1/dashboard")
+    def dashboard_view() -> Response:
+        if not dashboard_slots.acquire(blocking=False):
+            response = jsonify(error="Daten werden berechnet. Bitte erneut versuchen.")
+            response.status_code = 503
+            response.headers["Retry-After"] = "1"
+            return response
+        try:
+            result = dashboard(store, settings, request.args)
+            encoded = json.dumps(
+                result, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+            ).encode()
+            if len(encoded) > MAX_DASHBOARD_BYTES:
+                raise ValueError("Zu viele Werte. Bitte Zeitraum verkürzen.")
+            return Response(encoded, mimetype="application/json")
+        finally:
+            dashboard_slots.release()
 
     @app.get("/v1/devices")
     def devices() -> Response:
