@@ -122,9 +122,9 @@ Terminals mit den notwendigen Schlüsseln aus der eigenen Umgebung starten:
 
 ```sh
 PYTHONPATH=api/src DATA_DIR="$PWD/data/db" \
-  gunicorn --config python:solarbank_api.gunicorn_config --bind 127.0.0.1:8001 'solarbank_api.app:create_app()'
+  gunicorn --no-control-socket --config python:solarbank_api.gunicorn_config --bind 127.0.0.1:8001 'solarbank_api.app:create_app()'
 PYTHONPATH=web/src API_URL=http://127.0.0.1:8001 \
-  gunicorn --bind 127.0.0.1:8501 solarbank_dashboard.wsgi:server
+  gunicorn --no-control-socket --bind 127.0.0.1:8501 solarbank_dashboard.wsgi:server
 PYTHONPATH=collector/src API_URL=http://127.0.0.1:8001 TMPDIR=/tmp \
   python -m solarbank_collector
 ```

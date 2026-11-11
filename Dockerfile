@@ -24,7 +24,7 @@ USER fluxo
 EXPOSE 8001
 ENTRYPOINT ["python", "/app/docker/entrypoint.py"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz', timeout=3)"
-CMD ["gunicorn", "--config", "python:solarbank_api.gunicorn_config", "--bind", "0.0.0.0:8001", "--workers", "2", "--threads", "4", "--timeout", "30", "solarbank_api.app:create_app()"]
+CMD ["gunicorn", "--no-control-socket", "--config", "python:solarbank_api.gunicorn_config", "--bind", "0.0.0.0:8001", "--workers", "2", "--threads", "4", "--timeout", "30", "solarbank_api.app:create_app()"]
 
 FROM api AS api-tests
 USER root
@@ -45,7 +45,7 @@ COPY --from=assets --chown=fluxo:fluxo /build/web/src/solarbank_dashboard/static
 USER fluxo
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -m solarbank_dashboard.healthcheck
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "4", "--timeout", "60", "solarbank_dashboard.wsgi:server"]
+CMD ["gunicorn", "--no-control-socket", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "4", "--timeout", "60", "solarbank_dashboard.wsgi:server"]
 
 FROM web AS web-tests
 USER root
