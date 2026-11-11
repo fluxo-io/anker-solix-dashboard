@@ -52,10 +52,14 @@ with tempfile.TemporaryDirectory(prefix="compose-contract-") as directory:
             "Webports",
         )
         assert not services["api"].get("ports"), "API must remain private"
-        for service in ("api", "collector"):
+        for service in ("api",):
             mount = services[service]["volumes"][0]
             assert mount["type"] == "bind" and mount["bind"]["create_host_path"] is False
         assert not services["web"].get("volumes"), "Web must not mount business data"
+        assert not services["collector"].get("volumes"), "Collector only uses the API"
+        assert services["api"]["volumes"][0]["target"] == "/data"
+        if target == "local":
+            assert services["api"]["volumes"][0]["source"] == str(root / "data")
 
         if target == "webserver":
             assert "reverse-proxy" in services[web]["networks"]
@@ -80,8 +84,7 @@ with tempfile.TemporaryDirectory(prefix="compose-contract-") as directory:
                              ({"DATA_DIR": "./legacy", "HOST_DATA_DIR": "./canonical"}, root / "canonical")]:
         command = ["docker", "compose", "--env-file", str(envfile), "-f", "compose.yaml", "config", "--format", "json"]
         resolved = json.loads(subprocess.check_output(command, cwd=root, env={**isolated, **values}))
-        assert resolved["services"]["api"]["volumes"][0]["source"] == str(selected / "db")
-        assert resolved["services"]["collector"]["volumes"][0]["source"] == str(selected / "collector")
+        assert resolved["services"]["api"]["volumes"][0]["source"] == str(selected)
 print(
     "Neutrale Basis, lokale Ports, private API, Servernetz "
     "und stabile Datenmounts geprüft."

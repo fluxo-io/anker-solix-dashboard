@@ -1,0 +1,14 @@
+{
+  "legacyMounts": [
+    {
+      "service": "api",
+      "source": "data/db",
+      "target": "/data"
+    },
+    {
+      "service": "collector",
+      "source": "data/collector",
+      "target": "/data"
+    }
+  ]
+}

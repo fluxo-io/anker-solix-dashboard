@@ -46,6 +46,7 @@ class ProjectBackupProfileTests(unittest.TestCase):
                         (data / 'nested/state.json').write_text('{"synthetic":true}')
                         (data / 'artifact.bin').write_bytes(b'\x00\x01\xff')
                         for db in source['sqlite']:
+                            (data / db).parent.mkdir(parents=True, exist_ok=True)
                             with closing(sqlite3.connect(data / db)) as connection:
                                 connection.execute('CREATE TABLE example (value TEXT)')
                                 connection.execute("INSERT INTO example VALUES ('synthetic')")

@@ -25,7 +25,7 @@ services:
       context: .
       target: api
     user: "0:0"
-    cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]
     environment:
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env}
@@ -33,7 +33,10 @@ services:
       INIT_ADMIN_USERNAME: ${INIT_ADMIN_USERNAME:-admin}
       INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:-}
       INIT_ADMIN_PASSWORD_HASH: ${INIT_ADMIN_PASSWORD_HASH:-}
-      DATA_DIR: /data
+      DATA_DIR: /data/db
+      DATA_SUBDIRS: db
+      DATA_UID: ${FLUXO_DATA_UID:-}
+      DATA_GID: ${FLUXO_DATA_GID:-}
       SESSION_HOURS: ${SESSION_HOURS:-}
       SESSION_LIFETIME_MINUTES: ${SESSION_LIFETIME_MINUTES:-}
       DASHBOARD_TIMEZONE: ${DASHBOARD_TIMEZONE:-Europe/Berlin}
@@ -41,7 +44,7 @@ services:
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-300}
     volumes:
       - type: bind
-        source: ${HOST_DATA_DIR-${DATA_DIR:-./data}}/db
+        source: ${HOST_DATA_DIR-${DATA_DIR:-./data}}
         target: /data
         bind:
           create_host_path: false
@@ -78,8 +81,6 @@ services:
     build:
       context: .
       target: collector
-    user: "0:0"
-    cap_add: [CHOWN, DAC_OVERRIDE, SETUID, SETGID]
     environment:
       API_URL: http://api:8001
       COLLECTOR_API_TOKEN: ${COLLECTOR_API_TOKEN:?Set a separate COLLECTOR_API_TOKEN in .env}
@@ -93,12 +94,6 @@ services:
       API_REQUEST_TIMEOUT_SECONDS: ${API_REQUEST_TIMEOUT_SECONDS:-90}
       MAX_RETRIES: ${MAX_RETRIES:-2}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    volumes:
-      - type: bind
-        source: ${HOST_DATA_DIR-${DATA_DIR:-./data}}/collector
-        target: /data
-        bind:
-          create_host_path: false
     depends_on:
       api:
         condition: service_healthy

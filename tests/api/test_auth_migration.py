@@ -33,7 +33,8 @@ def legacy(settings, usernames=("Admin",)):
     password_hash = generate_password_hash(PASSWORD, method="pbkdf2:sha256:600000")
     with sqlite3.connect(settings.db_path) as db:
         db.execute(
-            "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+            "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, "
+            "applied_at TEXT NOT NULL)"
         )
         Store._create_schema(db)
         db.execute(
@@ -47,10 +48,28 @@ def legacy(settings, usernames=("Admin",)):
     return password_hash
 
 
+def test_start_refuses_legacy_schema_without_changing_database(settings):
+    legacy(settings)
+    before = settings.db_path.read_bytes()
+    with pytest.raises(RuntimeError, match="migration erforderlich"):
+        Store(settings).initialize()
+    assert before == settings.db_path.read_bytes()
+    Store(settings).migrate()
+    Store(settings).initialize()
+    assert Store(settings).ready()
+
+
+def test_start_does_not_replace_existing_empty_file(settings):
+    settings.db_path.touch()
+    with pytest.raises(RuntimeError, match="migration erforderlich"):
+        Store(settings).initialize()
+    assert settings.db_path.read_bytes() == b""
+
+
 def test_migration_preserves_hash_and_data_without_reimport(settings):
     password_hash = legacy(settings)
     store = Store(settings)
-    store.initialize()
+    store.migrate()
     identity, _ = store.login(" ADMIN ", PASSWORD, "client")
     assert identity["username"] == "Admin"
     with store.connection() as db:
@@ -84,7 +103,7 @@ def test_migration_preserves_hash_and_data_without_reimport(settings):
 def test_colliding_logins_abort_atomic_migration(settings):
     legacy(settings, ("Admin", "admin"))
     with pytest.raises(ValueError):
-        Store(settings).initialize()
+        Store(settings).migrate()
     with sqlite3.connect(settings.db_path) as db:
         assert db.execute("SELECT count(*) FROM users").fetchone()[0] == 2
         assert (
@@ -103,7 +122,7 @@ def test_existing_attempts_preserve_throttle(settings):
                 (str(index), key, time.time()),
             )
     store = Store(settings)
-    store.initialize()
+    store.migrate()
     user, retry = store.login("admin", PASSWORD, "client")
     assert user is None
     assert retry > 0
@@ -293,7 +312,7 @@ def test_management_migration_preserves_authorization_and_can_select_owner_later
         db.execute(
             "DELETE FROM auth_meta WHERE key='migration:anker-account-management-v1'"
         )
-    store.initialize()
+    store.migrate()
     with store.connection() as db:
         authorization = UserStore(db).find("admin").authorization
         assert authorization == {
@@ -313,12 +332,12 @@ def test_management_migration_preserves_authorization_and_can_select_owner_later
         db.execute(
             "DELETE FROM auth_meta WHERE key='migration:anker-account-management-v1'"
         )
-    Store(replace(settings, admin_username="missing")).initialize()
+    Store(replace(settings, admin_username="missing")).migrate()
     with store.connection() as db:
         accounts = UserStore(db)
         assert not accounts.migration_applied("anker-account-management-v1")
         assert all(not account.authorization for account in accounts.all())
-    store.initialize()
+    store.migrate()
     with store.connection() as db:
         assert UserStore(db).find("admin").authorization["permissions"] == [
             "users.manage"

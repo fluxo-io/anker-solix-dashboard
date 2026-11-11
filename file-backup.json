@@ -2,18 +2,12 @@
   "version": 1,
   "sources": [
     {
-      "name": "database",
+      "name": "data",
       "service": "api",
       "target": "/data",
       "sqlite": [
-        "app.sqlite3"
+        "db/app.sqlite3"
       ]
-    },
-    {
-      "name": "collector",
-      "service": "collector",
-      "target": "/data",
-      "sqlite": []
     }
   ],
   "stopOrder": [

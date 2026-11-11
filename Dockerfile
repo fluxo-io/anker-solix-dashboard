@@ -19,12 +19,12 @@ COPY api/requirements.txt ./requirements.txt
 COPY vendor/ ./vendor/
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=fluxo:fluxo api/src/ ./src/
-ENV DATA_DIR=/data
+ENV DATA_DIR=/data/db
 USER fluxo
 EXPOSE 8001
 ENTRYPOINT ["python", "/app/docker/entrypoint.py"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz', timeout=3)"
-CMD ["gunicorn", "--bind", "0.0.0.0:8001", "--workers", "2", "--threads", "4", "--timeout", "30", "solarbank_api.app:create_app()"]
+CMD ["gunicorn", "--config", "python:solarbank_api.gunicorn_config", "--bind", "0.0.0.0:8001", "--workers", "2", "--threads", "4", "--timeout", "30", "solarbank_api.app:create_app()"]
 
 FROM api AS api-tests
 USER root
@@ -62,9 +62,8 @@ FROM base AS collector
 COPY collector/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=fluxo:fluxo collector/src/ ./src/
-ENV TMPDIR=/data
+ENV TMPDIR=/tmp
 USER fluxo
-ENTRYPOINT ["python", "/app/docker/entrypoint.py"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -m solarbank_collector.healthcheck
 CMD ["python", "-m", "solarbank_collector"]
 

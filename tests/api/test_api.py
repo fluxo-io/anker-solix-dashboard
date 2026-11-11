@@ -11,6 +11,7 @@ import pytest
 from fluxo_auth import UserStore
 from solarbank_api.app import create_app
 from solarbank_api.config import Settings
+from solarbank_api.store import Store
 from werkzeug.security import generate_password_hash
 
 TOKEN = "test-api-token-" + "t" * 32
@@ -332,6 +333,9 @@ def test_concurrent_login_reservations_share_limit(app):
 def test_new_database_requires_seed_and_existing_user_is_unchanged(settings):
     with pytest.raises(ValueError, match="INIT_ADMIN"):
         create_app(replace(settings, admin_username="", admin_password=""))
+    with pytest.raises(RuntimeError, match="migration erforderlich"):
+        create_app(settings)
+    Store(settings).migrate()
     create_app(settings)
     changed_seed = create_app(replace(settings, admin_password="another-password-123"))
     assert login(changed_seed.test_client()).status_code == 200

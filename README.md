@@ -68,16 +68,65 @@ Nach Ablauf der konfigurierten Frist (standardmäßig acht Stunden) ist eine neu
 Anmeldung erforderlich. Ein Wechsel der Clientadresse beendet die Sitzung nicht. `/logout` bleibt auch bei
 API-Ausfall erreichbar; erst das bestätigte Formular beendet die lokale Sitzung.
 
-`HOST_DATA_DIR` wählt den Host-Datenordner, standardmäßig `./data`. Wenn es nicht
-gesetzt ist, bleibt der bisherige Hostalias `DATA_DIR` wirksam. Beide Werte bezeichnen
-denselben vorhandenen Datenbestand; beim Upgrade keinen neuen leeren Pfad wählen.
-Vor dem Start die Unterordner `db` und `collector` unter diesem Pfad ausdrücklich
-anlegen (beim Standard: `mkdir -p data/db data/collector`).
+Lokal wird der vollständige Ordner `./data` nach `/data` eingebunden; nur die
+API erhält Zugriff. SQLite bleibt `data/db/app.sqlite3`. Host und Container
+verwenden dieselben Dateien, ohne Kopie oder Synchronisation.
 
-Die Container bereiten ausschließlich ihren eigenen Daten-Unterordner vor und
-starten danach die Anwendung mit UID/GID 1000. Fehlende Bind-Mount-Quellen werden
-nicht automatisch angelegt; ein Tippfehler im Hostpfad führt zum Startabbruch. `data/` darf keine symbolischen Links enthalten.
-`.env`, `data/` und `backups/` sind von Git und Docker-Builds ausgeschlossen.
+Die Starthilfe `python3 scripts/docker_local.py up -d --build --wait` legt den
+Datenordner automatisch an, ermittelt UID/GID und ruft vollständig
+`docker compose -f compose.yaml -f compose.local.yaml up -d --build --wait` auf.
+Keine manuelle UID-/GID-Konfiguration ist erforderlich. Nur die anfängliche
+Rechtevorbereitung läuft privilegiert; der API-Anwendungsprozess läuft danach
+ohne Root-Rechte. Web und Collector laufen ebenfalls ohne Root.
+
+Der Collector übermittelt Messwerte und Status ausschließlich an die API. Sein
+Anker-Anmeldecache liegt flüchtig in `/tmp`; nach einer Neuerstellung meldet er
+sich erneut an. Ein alter Ordner `data/collector/` wird nicht gelöscht und bleibt
+im vollständigen Datenbackup enthalten, wird aber nicht mehr verwendet.
+
+Neue Datenbanken werden einmalig vor dem Start der API-Worker initialisiert. Vorhandene Daten und Konten
+bleiben bei Neustart, Build und Update erhalten; ältere Schemata werden nicht
+beim Start migriert. Vor einer notwendigen Migration alle Schreiber stoppen und
+eine konsistente Sicherung erstellen. Auch eine abgebrochene Ersteinrichtung
+wird erst mit diesem ausdrücklichen Befehl fortgesetzt. Danach:
+
+```sh
+python3 scripts/docker_local.py stop collector web api
+python3 scripts/docker_local.py run --rm --no-deps api python -m solarbank_api.manage migrate
+python3 scripts/docker_local.py up -d --build --wait
+```
+
+Ein abweichender alter Hostpfad oder ein Docker-Volume wird nicht automatisch
+übernommen. Quelle und Schreiber feststellen, sichern, in ein neues Zwischenziel
+kopieren, SQLite und Dateien prüfen und erst dann vollständig als `data/`
+bereitstellen. Kein ungeprüftes Zusammenführen; Original und Sicherung behalten.
+Die Starthilfe verweigert abweichende `HOST_DATA_DIR`-/alte `DATA_DIR`-Werte;
+diese nach kontrollierter Übernahme aus der lokalen `.env` entfernen.
+Für Server bleibt der Hostpfadalias verfügbar, der komplette Ordner wird nach
+`/data` eingebunden. `down -v` ist kein Updatebefehl.
+
+### Start ohne Docker
+
+Die Docker-Beispieldatei enthält nur Schlüssel, Startkonto, lokalen Port und
+Anker-Zugang. Interne API-Adresse, Containerpfade und technische Defaults sind
+bereits in Compose gesetzt. Für einen Direktstart die jeweiligen
+`api/requirements.txt`, `web/requirements.txt` und `collector/requirements.txt`
+in getrennten Umgebungen installieren; Assets mit `npm --prefix frontend ci`
+und `npm --prefix frontend run build` erstellen. Die Dienste in getrennten
+Terminals mit den notwendigen Schlüsseln aus der eigenen Umgebung starten:
+
+```sh
+PYTHONPATH=api/src DATA_DIR="$PWD/data/db" \
+  gunicorn --config python:solarbank_api.gunicorn_config --bind 127.0.0.1:8001 'solarbank_api.app:create_app()'
+PYTHONPATH=web/src API_URL=http://127.0.0.1:8001 \
+  gunicorn --bind 127.0.0.1:8501 solarbank_dashboard.wsgi:server
+PYTHONPATH=collector/src API_URL=http://127.0.0.1:8001 TMPDIR=/tmp \
+  python -m solarbank_collector
+```
+
+Die API erhält beide Dienstschlüssel, Web nur `API_TOKEN`, der Collector nur
+`COLLECTOR_API_TOKEN` sowie die Anker-Zugangsdaten. Weitere Betriebsoptionen
+stehen in der Variablenübersicht.
 
 ## Start (Webserver)
 
@@ -98,10 +147,10 @@ genau einem vorgeschalteten Proxy. API und SQLite erhalten keinen Host-Port.
 
 ```bash
 docker compose -f compose.yaml -f compose.local.yaml config --quiet
-docker compose -f compose.yaml -f compose.local.yaml up --build -d
+python3 scripts/docker_local.py up -d --build --wait
 ```
 
-Dashboard: <http://127.0.0.1:8501>. `PORT` ändert den lokalen Port.
+Dashboard: <http://localhost:8501>. `PORT` ändert den lokalen Port.
 
 ## Konfiguration
 
@@ -110,7 +159,8 @@ Die gemeinsamen Variablen sind `SECRET_KEY`, `API_TOKEN`, `API_URL`,
 `INIT_ADMIN_PASSWORD_HASH`, `PORT`, `HOST_DATA_DIR`, `SESSION_COOKIE_NAME`, `SESSION_COOKIE_SECURE`,
 `SESSION_HOURS`, `CANONICAL_ORIGIN`, `TRUST_PROXY` und `REVERSE_PROXY_NETWORK`.
 Der getrennte `COLLECTOR_API_TOKEN` ist ausschließlich für API und Collector bestimmt.
-Die vollständige Vorlage steht in `.env.example`. Compose setzt `API_URL` auf
+Die Docker-Vorlage `.env.example` beschränkt sich auf notwendige Angaben.
+Weitere Optionen dokumentiert die Variablenübersicht. Compose setzt `API_URL` auf
 die interne Adresse; für direkten Python-Betrieb kann eine andere Adresse dienen.
 
 Anker-spezifisch sind die Kontodaten, Land, optionale Gerätenummer,
@@ -128,20 +178,20 @@ veraltete und gültige Werte.
 ## Hostdateien und Backups
 
 Die vollständige Datenablage liegt auf dem Webserver-Dateisystem und ist für
-berechtigte SSH-/SFTP-Konten sowie Dateibackups erreichbar. Der vorhandene
-`HOST_DATA_DIR` (bisheriger Alias `DATA_DIR`) und die beiden Unterordner bleiben unverändert. Es wird kein
+berechtigte SSH-/SFTP-Konten sowie Dateibackups erreichbar.
+Lokal liegt der vollständige Bestand unter `./data`; vorhandene Server-Hostpfade
+werden nur kontrolliert übernommen. Es wird kein
 HTTP-Dateizugriff auf Datenbanken oder Anmeldecaches eingerichtet.
 
 | Bestand | Hostpfad | Snapshotpfad |
 | --- | --- | --- |
-| SQLite einschließlich möglicher Journale | `${HOST_DATA_DIR}/db` (Standard `./data/db`) | `sources/database/` |
-| Vollständiger Collectorbestand einschließlich Anker-Anmeldecache und weiterer Dateien | `${HOST_DATA_DIR}/collector` (Standard `./data/collector`) | `sources/collector/` |
+| Vollständiger Datenordner einschließlich SQLite und aufbewahrter Altdateien | lokal `./data`; Server `${HOST_DATA_DIR}` | `sources/data/` |
 
-Der Collector verwendet `/data` auch für seine persistente temporäre Ablage;
-deshalb wird der gesamte Ordner gesichert. Sein Heartbeat in `/tmp` ist flüchtig
-und wird beim Start neu erzeugt. Die Browser-Sitzung liegt im signierten Cookie.
+Anker-Anmeldecache und Heartbeat des Collectors liegen flüchtig in `/tmp` und
+werden beim Start neu erzeugt. Die Browser-Sitzung liegt im signierten Cookie.
 
-API und Collector verwenden UID/GID 1000:1000, private Dateien sind 0600.
+Die API verwendet lokal automatisch ermittelte UID/GID; private Dateien sind 0600.
+Der Collector bleibt beim bisherigen nicht privilegierten Imagebenutzer.
 Der Betreiber benötigt passende Eigentümer-/Gruppenrechte, gezielte ACLs oder
 administrative Rechte für SSH/SFTP und Backups. Keine pauschale Freigabe für
 alle Benutzer. Die Stoppreihenfolge lautet `collector` → `web` → `api`; die
@@ -192,7 +242,7 @@ Metadaten. Sicherungen enthalten Zugangsdaten und sind vertraulich.
 `verify` und `restore` benötigen weder Docker noch ENV-Dateien. Restore schreibt
 ausschließlich in ein neues Ziel und überschreibt keine Installation. Vor einer
 bewussten Übernahme die isolierten Daten prüfen, Dienste anhalten und die
-Runtime-Rechte setzen: Datenablagen gehören UID/GID 1000:1000; SQLite-Dateien
+Runtime-Rechte setzen: Datenablagen erhalten lokal automatisch passende UID/GID; SQLite-Dateien
 bleiben 0600. Originaldaten und bisherige Sicherung bis zur erfolgreichen
 Wiederanlaufprüfung erhalten. Die Dateien aus `configuration/` sind geschützte
 Wiederherstellungskopien; Versionsstand und übrigen Deploymentcode separat sichern.
@@ -236,7 +286,7 @@ Aktionsmeldungen verwenden `@fluxo/web-ui` 1.0.2. Dash liefert Text, Kategorie u
 
 `npm --prefix frontend ci && npm --prefix frontend run build` erzeugt Hashassets und Manifest. Öffentliche Jinja-Seiten und Dash verwenden denselben geprüften Manifest-Lookup. Die Factory akzeptiert Settings/AuthSettings und einen injizierten API-Transport; der Gunicorn-Einstieg ist `solarbank_dashboard.wsgi:server`.
 
-Vor dem Upgrade sämtliche Start-/Deploymentaufrufe um das gewünschte Overlay ergänzen. Datenpfade, UID/GID, Compose-Name, getrennte Collectorablage und drei Minuten Stopfrist bleiben erhalten. Für die gemeinsame Anmeldung gilt zusätzlich die unten beschriebene Auth-Migration.
+Vor dem Upgrade sämtliche Start-/Deploymentaufrufe um das gewünschte Overlay ergänzen. Compose-Name und drei Minuten Stopfrist bleiben erhalten. Lokale Datenpfade und Rechte folgen der oben beschriebenen Einrichtung; der Collectorcache ist flüchtig. Für die gemeinsame Anmeldung gilt zusätzlich die unten beschriebene Auth-Migration.
 
 ### Gemeinsame Prüfungen
 
@@ -310,8 +360,8 @@ Gerät sein zwischengespeichertes Icon ersetzt.
 | `API_URL` | HTTP(S)-URL | direkt `http://127.0.0.1:8001`, Compose `http://api:8001` | nein / nein | Web/Collector: interne API |
 | `API_TIMEOUT_SECONDS` | ganze Sekunden, 1–60 | `5` | nein / nein | Web/Collector: HTTP-Zeitlimit; Health höchstens 2 Sekunden |
 | `API_DASHBOARD_TIMEOUT_SECONDS` | ganze Sekunden, 1–30 | `20` | nein / nein | Web: Auswertung großer Zeitfenster; normales API- und Healthbudget bleiben getrennt |
-| `HOST_DATA_DIR` | Hostpfad | `./data` | Ordner vorbereiten / nein | API `db/`, Collector `collector/` |
-| `DATA_DIR` | Hostalias / interner Containerpfad | Host `./data`, API `/data` | nein / nein | Hostalias nur ohne `HOST_DATA_DIR`; im API-Container fest `/data` |
+| `HOST_DATA_DIR` | Hostpfad | `./data` | nein / nein | Server/Bestandsübernahme; lokal fest `./data` |
+| `DATA_DIR` | Hostalias / interner Containerpfad | API `/data/db` | nein / nein | Direktstart DB-Ordner; alter Server-Hostalias nur ohne `HOST_DATA_DIR` |
 | `PORT` | TCP-Port | `8501` | nein / nein | lokales Web-Overlay |
 | `INIT_ADMIN_USERNAME` | Benutzername | `admin` | initial / nein | API: Startkonto |
 | `INIT_ADMIN_PASSWORD` | Passwort, ≥12 Zeichen | leer | initial Passwort oder Hash / ja | API: Startkonto; danach entfernen |
@@ -372,8 +422,8 @@ Anmeldeversuche liegen in den gemeinsamen `auth_*`-Tabellen der bestehenden
 `data/db/app.sqlite3`. Messwerte und Collectorstatus bleiben in derselben Datei;
 der Webdienst erhält keinen Datenbankmount. Es gibt keine zweite Kontenquelle.
 
-Beim ersten Start übernimmt die API bestehende Benutzer und Passwort-Hashes
-transaktional. Benutzer erhalten eine stabile interne Kennung; der frühere
+Die ausdrücklich ausgeführte Migration übernimmt bestehende Benutzer und
+Passwort-Hashes transaktional. Benutzer erhalten eine stabile interne Kennung; der frühere
 Passwort-Fingerprint wird nicht mehr als Sitzung verwendet. Namenskollisionen
 nach der gemeinsamen Normalisierung brechen den Import ab. Vor dem produktiven
 Upgrade konsistent sichern, API und Web gemeinsam aktualisieren und anschließend
@@ -395,7 +445,7 @@ wirksam; erfolgreiche Logins löschen frühere Client-Fehlversuche nicht.
 Ein Passwort kann ohne neue Verwaltungsoberfläche interaktiv geändert werden:
 
 ```sh
-docker compose -f compose.yaml -f compose.webserver.yaml exec api python -m solarbank_api.accounts admin
+docker compose -f compose.yaml -f compose.webserver.yaml run --rm --no-deps api python -m solarbank_api.accounts admin
 ```
 
 Das Passwort wird verdeckt eingegeben und nicht als Shellargument gespeichert.
@@ -416,4 +466,4 @@ spätere Verlängerung reaktiviert sie nicht.
 
 Über „Konto“ → „Nutzer verwalten“ erreicht das Verwaltungskonto die Nutzerübersicht. Neue Konten erhalten Dashboardzugriff ohne Verwaltungsrecht. Bei Anlage und Reset stehen festes Passwort und Initialpasswort zur Wahl; Initialpasswörter müssen vor Zugriff auf das Dashboard geändert werden. Der Status bleibt in der Übersicht sichtbar. Das eigene Passwort lässt sich unter „Konto“ ändern. Der interaktive API-Befehl `python -m solarbank_api.accounts USERNAME --initial` setzt ein Initialpasswort; ohne `--initial` bleibt es ein festes Passwort.
 
-Die letzte erfolgreiche Passwortanmeldung wird in UTC dauerhaft erfasst und mit Sekunden sowie Zeitzone Europe/Berlin angezeigt. Fehlversuche, Sitzungsprüfungen und Passwortänderungen ändern diesen Zeitpunkt nicht; fehlende historische Angaben erscheinen als „Noch nicht erfasst“. Die einmalige Berechtigungsmigration erhält das konfigurierte Verwaltungskonto beziehungsweise das einzige vorhandene Altkonto; neue gewöhnliche Konten erhalten keine Verwaltungsrechte. Bei mehreren Altkonten muss `INIT_ADMIN_USERNAME` ein vorhandenes Verwaltungskonto benennen; nach Korrektur der Einstellung die API neu starten. Bis dahin bleiben vorhandene Dashboardzugänge erhalten, die Nutzerverwaltung ist noch nicht verfügbar. Das erstmalige Zuweisen des Verwaltungsrechts beendet die bisherigen Sitzungen dieses Kontos; danach ist eine Neuanmeldung nötig. Kontoänderungen prüfen die Berechtigung in derselben SQLite-Transaktion wie die Änderung. Produktive Daten bleiben beim lokalen Test unberührt.
+Die letzte erfolgreiche Passwortanmeldung wird in UTC dauerhaft erfasst und mit Sekunden sowie Zeitzone Europe/Berlin angezeigt. Fehlversuche, Sitzungsprüfungen und Passwortänderungen ändern diesen Zeitpunkt nicht; fehlende historische Angaben erscheinen als „Noch nicht erfasst“. Die ausdrücklich ausgeführte Berechtigungsmigration erhält das konfigurierte Verwaltungskonto beziehungsweise das einzige vorhandene Altkonto; neue gewöhnliche Konten erhalten keine Verwaltungsrechte. Bei mehreren Altkonten muss `INIT_ADMIN_USERNAME` ein vorhandenes Verwaltungskonto benennen; nach Korrektur der Einstellung die Migration erneut ausführen. Bis zur erfolgreichen Migration startet die API nicht; vorhandene Daten bleiben erhalten. Das erstmalige Zuweisen des Verwaltungsrechts beendet die bisherigen Sitzungen dieses Kontos; danach ist eine Neuanmeldung nötig. Kontoänderungen prüfen die Berechtigung in derselben SQLite-Transaktion wie die Änderung. Produktive Daten bleiben beim lokalen Test unberührt.

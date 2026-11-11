@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import hmac
 import json
@@ -63,7 +64,45 @@ class Store:
         finally:
             connection.close()
 
+    @contextmanager
+    def _setup_lock(self) -> Iterator[None]:
+        self.settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+        with (self.settings.db_path.parent / ".initialize.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield
+
     def initialize(self) -> None:
+        """Initialize only a new database; migrations are an explicit operation."""
+        with self._setup_lock():
+            if self.settings.db_path.exists():
+                try:
+                    ready = self.ready()
+                    with self.connection() as connection:
+                        ready = ready and UserStore(connection).migration_applied(
+                            "anker-account-management-v1"
+                        )
+                except sqlite3.Error:
+                    ready = False
+                if not ready:
+                    raise RuntimeError(
+                        "Datenbankmigration erforderlich: "
+                        "python -m solarbank_api.manage migrate"
+                    )
+                with self.connection() as connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    self._auth(connection).constrain_lifetime()
+                return
+            self._apply_migrations()
+
+    def migrate(self) -> None:
+        with self._setup_lock():
+            if not self.settings.db_path.is_file():
+                raise RuntimeError(
+                    "Keine bestehende Datenbank für die Migration vorhanden."
+                )
+            self._apply_migrations()
+
+    def _apply_migrations(self) -> None:
         self.settings.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection(create=True) as connection:
             # Keep the portable rollback journal on the bundled SQLite runtime.

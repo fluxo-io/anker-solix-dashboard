@@ -1,4 +1,10 @@
 services:
+  api:
+    volumes: !override
+      - type: bind
+        source: ./data
+        target: /data
+        bind: {create_host_path: false}
   web:
     ports:
       - "127.0.0.1:${PORT:-8501}:8000"
