@@ -227,3 +227,85 @@ def test_api_expiry_is_authoritative_over_longer_web_cookie(api):
     assert login(client).status_code == 302
     with patch("time.time", return_value=time.time() + 11):
         assert client.get("/").status_code == 302
+
+
+def test_account_management_and_initial_password_flow(api):
+    application = web(api)
+    client = application.test_client()
+    assert login(client).status_code == 302
+    assert client.get("/users").status_code == 200
+    assert (
+        client.post(
+            "/users", data={"username": "initial", "password": PASSWORD}
+        ).status_code
+        == 400
+    )
+    for name, mode in [("fixed", "fixed"), ("initial", "initial")]:
+        response = client.post(
+            "/users",
+            data={
+                "csrf_token": csrf(client.get("/users")),
+                "username": name,
+                "password": PASSWORD,
+                "password_mode": mode,
+            },
+        )
+        assert response.status_code == 302
+    table = client.get("/users")
+    assert b"Noch nicht erfasst" in table.data
+    assert re.search(rb"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2} (CET|CEST)", table.data)
+    user_client = application.test_client()
+    response = user_client.post(
+        "/login",
+        data={
+            "csrf_token": csrf(user_client.get("/login")),
+            "username": "initial",
+            "password": PASSWORD,
+        },
+    )
+    assert response.location == "/password"
+    assert user_client.get("/").location == "/password"
+    assert user_client.get("/users").location == "/password"
+    response = user_client.post(
+        "/password",
+        data={
+            "csrf_token": csrf(user_client.get("/password")),
+            "old_password": PASSWORD,
+            "password": PASSWORD,
+            "confirm": PASSWORD,
+        },
+    )
+    assert response.status_code == 400
+    response = user_client.post(
+        "/password",
+        data={
+            "csrf_token": csrf(user_client.get("/password")),
+            "old_password": PASSWORD,
+            "password": "Changed-password-456",
+            "confirm": "Changed-password-456",
+        },
+    )
+    assert response.status_code == 302
+    assert user_client.get("/").status_code == 200
+    assert user_client.get("/users").status_code == 403
+    fixed_client = application.test_client()
+    response = fixed_client.post(
+        "/login",
+        data={
+            "csrf_token": csrf(fixed_client.get("/login")),
+            "username": "fixed",
+            "password": PASSWORD,
+        },
+    )
+    assert response.location == "/"
+    response = client.post(
+        "/users/password-reset",
+        data={
+            "csrf_token": csrf(client.get("/users/password-reset?username=fixed")),
+            "username": "fixed",
+            "password": "Reset-password-123",
+            "password_mode": "initial",
+        },
+    )
+    assert response.status_code == 302
+    assert fixed_client.get("/").location == "/login"

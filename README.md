@@ -366,7 +366,7 @@ Diagramm-Schrift und neutrale Diagrammfarben verwenden denselben `tokens.json`-E
 
 ## Gemeinsamer Login und Benutzerspeicher
 
-Web und API installieren dasselbe feste Pythonpaket `fluxo_auth` 1.0.0 aus
+Web und API installieren dasselbe feste Pythonpaket `fluxo_auth` 1.1.0 aus
 `vendor/`; `vendor/SHA256SUMS` prüft das Paket. Benutzer, Sitzungen und
 Anmeldeversuche liegen in den gemeinsamen `auth_*`-Tabellen der bestehenden
 `data/db/app.sqlite3`. Messwerte und Collectorstatus bleiben in derselben Datei;
@@ -411,3 +411,9 @@ Es wird kein regelmäßiger Backup-Job eingerichtet.
 wenn `SESSION_HOURS` leer ist. Sind beide gesetzt, müssen sie dieselbe Frist
 angeben. Eine verkürzte Frist begrenzt bestehende Sitzungen dauerhaft; eine
 spätere Verlängerung reaktiviert sie nicht.
+
+### Nutzer, Passwortart und letzte Anmeldung
+
+Über „Konto“ → „Nutzer verwalten“ erreicht das Verwaltungskonto die Nutzerübersicht. Neue Konten erhalten Dashboardzugriff ohne Verwaltungsrecht. Bei Anlage und Reset stehen festes Passwort und Initialpasswort zur Wahl; Initialpasswörter müssen vor Zugriff auf das Dashboard geändert werden. Der Status bleibt in der Übersicht sichtbar. Das eigene Passwort lässt sich unter „Konto“ ändern. Der interaktive API-Befehl `python -m solarbank_api.accounts USERNAME --initial` setzt ein Initialpasswort; ohne `--initial` bleibt es ein festes Passwort.
+
+Die letzte erfolgreiche Passwortanmeldung wird in UTC dauerhaft erfasst und mit Sekunden sowie Zeitzone Europe/Berlin angezeigt. Fehlversuche, Sitzungsprüfungen und Passwortänderungen ändern diesen Zeitpunkt nicht; fehlende historische Angaben erscheinen als „Noch nicht erfasst“. Die einmalige Berechtigungsmigration erhält das konfigurierte Verwaltungskonto beziehungsweise das einzige vorhandene Altkonto; neue gewöhnliche Konten erhalten keine Verwaltungsrechte. Bei mehreren Altkonten muss `INIT_ADMIN_USERNAME` ein vorhandenes Verwaltungskonto benennen; nach Korrektur der Einstellung die API neu starten. Bis dahin bleiben vorhandene Dashboardzugänge erhalten, die Nutzerverwaltung ist noch nicht verfügbar. Das erstmalige Zuweisen des Verwaltungsrechts beendet die bisherigen Sitzungen dieses Kontos; danach ist eine Neuanmeldung nötig. Kontoänderungen prüfen die Berechtigung in derselben SQLite-Transaktion wie die Änderung. Produktive Daten bleiben beim lokalen Test unberührt.

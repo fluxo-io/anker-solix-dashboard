@@ -6,9 +6,10 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from flask import (
     Flask,
@@ -35,8 +36,8 @@ from flask_login import (
 from flask_wtf import CSRFProtect, FlaskForm
 from fluxo_auth import configure_flask_session, session_seconds
 from werkzeug.middleware.proxy_fix import ProxyFix
-from wtforms import PasswordField, StringField, SubmitField
-from wtforms.validators import InputRequired, Length
+from wtforms import PasswordField, SelectField, StringField, SubmitField
+from wtforms.validators import EqualTo, InputRequired, Length
 
 from .config import ConfigurationError, Settings
 from .public_pages import PUBLIC_PAGE_PATHS, PUBLIC_STATIC_PATHS, SHORTCUT_STATIC_PATHS
@@ -133,9 +134,47 @@ class LogoutForm(FlaskForm):
     submit = SubmitField("Abmelden")
 
 
+class PasswordForm(FlaskForm):
+    old_password = PasswordField(
+        "Aktuelles Passwort", validators=[InputRequired(), Length(max=1024)]
+    )
+    password = PasswordField(
+        "Neues Passwort", validators=[InputRequired(), Length(min=12, max=1024)]
+    )
+    confirm = PasswordField(
+        "Passwort wiederholen",
+        validators=[
+            InputRequired(),
+            EqualTo("password", message="Die Passwörter stimmen nicht überein."),
+        ],
+    )
+    submit = SubmitField("Passwort ändern")
+
+
+class AccountForm(FlaskForm):
+    username = StringField(
+        "Benutzername", validators=[InputRequired(), Length(max=254)]
+    )
+    password = PasswordField(
+        "Passwort", validators=[InputRequired(), Length(min=12, max=1024)]
+    )
+    password_mode = SelectField(
+        "Passwortart",
+        choices=[
+            ("initial", "Initialpasswort"),
+            ("fixed", "Festes Passwort"),
+        ],
+        default="initial",
+    )
+    submit = SubmitField("Speichern")
+
+
 class _DashboardUser(UserMixin):
-    def __init__(self, user_id: str) -> None:
-        self.id = user_id
+    def __init__(self, data: dict) -> None:
+        self.id = str(data["id"])
+        self.username = data.get("username", "")
+        self.must_change_password = data.get("must_change_password", False)
+        self.can_manage_users = data.get("can_manage_users", False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,7 +319,7 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
             if error.status == 401:
                 return None
             abort(503)
-        return _DashboardUser(str(user["id"]))
+        return _DashboardUser(user)
 
     @app.before_request
     def require_authentication() -> Response | None:
@@ -296,6 +335,10 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
         }:
             return None
         if current_user.is_authenticated:
+            if current_user.must_change_password and request.path != "/password":
+                if request.method in {"GET", "HEAD"}:
+                    return redirect("/password")
+                return jsonify(error="Passwortwechsel erforderlich"), 403
             return None
         if request.method in {"GET", "HEAD"} and not request.path.startswith("/_dash-"):
             return redirect(url_for("solarbank_auth_login"))
@@ -304,7 +347,7 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
     @app.route("/login", methods=["GET", "POST"], endpoint="solarbank_auth_login")
     def login() -> Any:
         if current_user.is_authenticated:
-            return redirect("/")
+            return redirect("/password" if current_user.must_change_password else "/")
         if request.content_length is not None and request.content_length > 16384:
             abort(413)
         form = LoginForm()
@@ -349,9 +392,9 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
             return _login_response(form, "Anmeldung nicht verfügbar."), 503
         session.clear()
         session["authenticated_at"] = time.time()
-        login_user(_DashboardUser(str(user["id"])), remember=False, fresh=True)
+        login_user(_DashboardUser(user), remember=False, fresh=True)
         session.permanent = True
-        return redirect("/")
+        return redirect("/password" if user.get("must_change_password") else "/")
 
     @app.route("/logout", methods=["GET", "POST"], endpoint="solarbank_auth_logout")
     def logout() -> Any:
@@ -379,6 +422,119 @@ def configure_auth(app: Flask, config: AuthSettings | None = None) -> AuthState:
         session.clear()
         flash("Abgemeldet.", "notice")
         return redirect(url_for("solarbank_auth_login"))
+
+    def account_api(path, payload):
+        return request_api(
+            current_app.extensions.get("solarbank_settings")
+            or Settings.from_environment(),
+            path,
+            payload={"id": current_user.get_id(), **payload},
+        )
+
+    @app.template_filter("login_time")
+    def login_time(value):
+        if not value:
+            return "Noch nicht erfasst"
+        return (
+            datetime.fromisoformat(value)
+            .astimezone(ZoneInfo("Europe/Berlin"))
+            .strftime("%d.%m.%Y %H:%M:%S %Z")
+        )
+
+    @app.route("/password", methods=["GET", "POST"])
+    def solarbank_password():
+        form = PasswordForm()
+        message, status = "", 200
+        if request.method == "POST":
+            if form.validate_on_submit():
+                try:
+                    user = account_api(
+                        "/v1/auth/password",
+                        {
+                            "old_password": form.old_password.data,
+                            "password": form.password.data,
+                        },
+                    )
+                    issued = session.get("authenticated_at")
+                    session.clear()
+                    session["authenticated_at"] = issued
+                    login_user(_DashboardUser(user), remember=False, fresh=True)
+                    session.permanent = True
+                    flash("Passwort geändert.", "notice")
+                    return redirect("/password")
+                except ApiError as error:
+                    if error.status == 401:
+                        session.clear()
+                        return redirect("/login")
+                    message = (
+                        "Passwort konnte nicht geändert werden. Bitte Eingaben prüfen."
+                        if error.status == 400
+                        else "Änderung nicht bestätigt. Bitte erneut anmelden."
+                    )
+                    status = 400 if error.status == 400 else 503
+            else:
+                message, status = (
+                    "Bitte Eingaben prüfen. Mindestens 12 Zeichen verwenden.",
+                    400,
+                )
+        return render_template("password.html", form=form, message=message), status
+
+    @app.route("/users", methods=["GET", "POST"])
+    @app.route("/users/password-reset", methods=["GET", "POST"])
+    def solarbank_users():
+        if not current_user.can_manage_users:
+            abort(403)
+        resetting = request.path.endswith("password-reset")
+        form = AccountForm()
+        if resetting and request.method == "GET":
+            form.username.data = request.args.get("username", "")
+        message, status = "", 200
+        if request.method == "POST":
+            if form.validate_on_submit():
+                try:
+                    account_api(
+                        "/v1/auth/accounts",
+                        {
+                            "operation": "reset" if resetting else "create",
+                            "username": form.username.data,
+                            "password": form.password.data,
+                            "must_change_password": form.password_mode.data
+                            == "initial",
+                        },
+                    )
+                    flash(
+                        "Passwort zurückgesetzt." if resetting else "Nutzer angelegt.",
+                        "notice",
+                    )
+                    if (
+                        resetting
+                        and form.username.data.strip().casefold()
+                        == current_user.username.casefold()
+                    ):
+                        session.clear()
+                        return redirect("/login")
+                    return redirect("/users")
+                except ApiError as error:
+                    if error.status in {401, 403}:
+                        abort(error.status)
+                    message = (
+                        "Bitte Benutzername und Passwort prüfen."
+                        if error.status == 400
+                        else "Änderung nicht bestätigt. Bitte aktuellen Stand prüfen."
+                    )
+                    status = 400 if error.status == 400 else 503
+            else:
+                message, status = (
+                    "Bitte Eingaben prüfen. Mindestens 12 Zeichen verwenden.",
+                    400,
+                )
+        try:
+            users = account_api("/v1/auth/accounts", {"operation": "list"})["users"]
+        except ApiError as error:
+            abort(error.status if error.status in {401, 403} else 503)
+        return render_template(
+            "users.html", form=form, users=users, resetting=resetting, message=message
+        ), status
 
     state = AuthState(config, manager)
     app.extensions["solarbank_auth"] = state

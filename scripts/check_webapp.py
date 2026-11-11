@@ -27,7 +27,7 @@ def validate(profile, compose=None):
     provisioning = api.get('provisioning')
     require(provisioning in {'managed', 'existing'}, 'API-Bereitstellung muss managed oder existing sein.')
     require(profile.get('interface') in {'jinja', 'dash'}, 'Oberfläche muss jinja oder dash sein.')
-    require(profile.get('theme') in {'fluxo', 'bnho', 'lumi'}, 'Theme muss als unterstütztes Paket deklariert sein.')
+    require(profile.get('theme') in {'fluxo', 'bnho', 'lumi', 'don'}, 'Theme muss als unterstütztes Paket deklariert sein.')
     require(type(profile.get('backgroundWorker')) is bool, 'backgroundWorker muss ein Boolean sein.')
     require(profile.get('notifications') == 'fluxo-notifications/1.0', 'Gemeinsamer Meldungsvertrag fehlt.')
     data = profile.get('data', {})
@@ -55,7 +55,8 @@ def validate(profile, compose=None):
         if not isinstance(auth, dict):
             errors.append('Authdeklaration muss ein Objekt sein.')
         elif auth.get('implementation') == 'fluxo-auth':
-            expected = {'implementation': 'fluxo-auth', 'version': '1.0.0', 'owner': 'api',
+            require(auth.get('version') in {'1.0.0', '1.1.0'}, 'Unbekannte Fluxo-Auth-Version.')
+            expected = {'implementation': 'fluxo-auth', 'version': auth.get('version'), 'owner': 'api',
                         'storage': 'sqlite', 'session': 'opaque-server-side'}
             require(auth == expected, 'Lokale Konten benötigen den gemeinsamen Fluxo-Auth-Vertrag.')
             require(provisioning == 'managed', 'Gemeinsamer lokaler Authstore gehört zur eigenen API.')

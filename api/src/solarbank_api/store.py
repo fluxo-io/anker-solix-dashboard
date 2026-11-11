@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from fluxo_auth import AuthService, UserStore, hash_password
+from fluxo_auth import AuthService, UserStore, hash_password, verify_password
 
 from .config import Settings
 from .validation import MEASUREMENT_COLUMNS, NUMERIC_COLUMNS
@@ -127,9 +127,36 @@ class Store:
                         if self.settings.admin_password
                         else self.settings.admin_password_hash
                     ),
-                    authorization={},
+                    authorization={"permissions": ["users.manage"]},
                     metadata={"display_name": self.settings.admin_username},
                 )
+            if not accounts.migration_applied("anker-account-management-v1"):
+                existing = accounts.all()
+                owners = [
+                    account
+                    for account in existing
+                    if account.username.casefold()
+                    == self.settings.admin_username.casefold()
+                ]
+                # With no configured name, only the sole legacy account can be
+                # identified unambiguously. Multiple users require an explicit name.
+                if not owners and len(existing) == 1 and not existing[0].authorization:
+                    owners = existing
+                for owner in owners:
+                    permissions = set(owner.authorization.get("permissions", []))
+                    permissions.add("users.manage")
+                    accounts.update(
+                        owner.id,
+                        authorization={
+                            **owner.authorization,
+                            "permissions": sorted(permissions),
+                        },
+                    )
+                if owners or any(
+                    "users.manage" in account.authorization.get("permissions", [])
+                    for account in existing
+                ):
+                    accounts.import_legacy("anker-account-management-v1", [])
             self._auth(connection).constrain_lifetime()
         self.settings.db_path.chmod(0o600)
 
@@ -377,19 +404,23 @@ class Store:
             )
             if result.user is None:
                 return None, result.retry_after
-            return {"id": result.token, "username": result.user.username}, None
+            return {**self._account(result.user), "id": result.token}, None
 
     def session_user(self, token: str) -> dict[str, str] | None:
         with self.connection() as connection:
             user = self._auth(connection).validate(token)
-            return {"id": token, "username": user.username} if user else None
+            return {**self._account(user), "id": token} if user else None
 
     def logout(self, token: str) -> bool:
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             return self._auth(connection).logout(token)
 
-    def reset_password(self, username: str, password: str) -> None:
+    def reset_password(
+        self, username: str, password: str, *, must_change: bool = False
+    ) -> None:
+        if type(must_change) is not bool:
+            raise ValueError("Ungültige Passwortart.")
         password_hash = hash_password(password)
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -398,5 +429,81 @@ class Store:
             if user is None:
                 raise ValueError("Benutzer nicht gefunden.")
             accounts.update(
+                user.id, password_hash=password_hash, must_change_password=must_change
+            )
+
+    @staticmethod
+    def _account(user) -> dict[str, Any]:
+        return {
+            "username": user.username,
+            "active": user.active,
+            "must_change_password": user.must_change_password,
+            "can_manage_users": "users.manage"
+            in user.authorization.get("permissions", []),
+            "last_login_at": user.last_login_at,
+        }
+
+    def manage_accounts(self, token: str, operation: str, data: dict) -> dict:
+        # Verify the actor under the same lock as account writes.
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            accounts = UserStore(connection)
+            actor = self._auth(connection).validate(token)
+            if actor is None:
+                raise PermissionError("Anmeldung erforderlich.")
+            if (
+                actor.must_change_password
+                or "users.manage" not in actor.authorization.get("permissions", [])
+            ):
+                raise PermissionError("Zugriff nicht erlaubt.")
+            if operation == "list":
+                return {"users": [self._account(user) for user in accounts.all()]}
+            must_change = data.get("must_change_password", True)
+            if type(must_change) is not bool:
+                raise ValueError("Ungültige Passwortart.")
+            username = data.get("username")
+            if not isinstance(username, str):
+                raise ValueError("Benutzername fehlt.")
+            password_hash = hash_password(data.get("password"))
+            if operation == "create":
+                if accounts.find(username):
+                    raise ValueError("Dieser Benutzername ist bereits vergeben.")
+                user = accounts.create(
+                    id="usr_" + secrets.token_hex(12),
+                    username=username,
+                    password_hash=password_hash,
+                    must_change_password=must_change,
+                    authorization={},
+                    metadata={"display_name": username},
+                )
+            elif operation == "reset":
+                user = accounts.find(username)
+                if user is None:
+                    raise ValueError("Benutzer nicht gefunden.")
+                user = accounts.update(
+                    user.id,
+                    password_hash=password_hash,
+                    must_change_password=must_change,
+                )
+            else:
+                raise ValueError("Unbekannte Aktion.")
+            return {"user": self._account(user)}
+
+    def change_password(self, token: str, old_password: str, password: str) -> dict:
+        password_hash = hash_password(password)
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            service = self._auth(connection)
+            user = service.validate(token)
+            if user is None:
+                raise PermissionError("Anmeldung erforderlich.")
+            if not isinstance(old_password, str) or not verify_password(
+                user.password_hash, old_password
+            ):
+                raise ValueError("Das aktuelle Passwort ist nicht korrekt.")
+            if verify_password(user.password_hash, password):
+                raise ValueError("Bitte ein anderes neues Passwort wählen.")
+            user = UserStore(connection).update(
                 user.id, password_hash=password_hash, must_change_password=False
             )
+            return {**self._account(user), "id": service.issue(user.id)}

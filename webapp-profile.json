@@ -27,7 +27,7 @@
   "exceptions": [],
   "auth": {
     "implementation": "fluxo-auth",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "owner": "api",
     "storage": "sqlite",
     "session": "opaque-server-side"

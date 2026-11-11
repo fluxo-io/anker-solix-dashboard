@@ -427,3 +427,18 @@ input {
     transition: none !important;
   }
 }
+
+.accounts-main {
+  margin-inline: auto;
+  min-width: 0;
+  padding: 1.5rem 1rem 3rem;
+  width: min(72rem, 100%);
+}
+.account-nav { display: flex; flex-wrap: wrap; gap: 1rem; margin-block: 1rem 1.5rem; }
+.account-table { max-width: 100%; overflow-x: auto; margin-bottom: 1.5rem; }
+.account-table table { border-collapse: collapse; width: 100%; }
+.account-table th, .account-table td { padding: 0.75rem; border-bottom: 1px solid var(--fluxo-line); text-align: left; }
+.account-table th, .account-table td:nth-child(4) { white-space: nowrap; }
+.account-form { width: min(32rem, 100%); }
+.account-form select { font: inherit; max-width: 100%; }
+.account-form h2 { margin-top: 0; }

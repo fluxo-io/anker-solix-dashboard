@@ -317,7 +317,11 @@ def empty_figure(message: str = "Keine Daten") -> go.Figure:
     figure.add_annotation(
         text=message,
         showarrow=False,
-        font={"color": design_tokens()["muted"], "family": design_tokens()["font-body-name"], "size": 14},
+        font={
+            "color": design_tokens()["muted"],
+            "family": design_tokens()["font-body-name"],
+            "size": 14,
+        },
     )
     figure.update_layout(
         height=340,
@@ -703,11 +707,16 @@ def build_layout(*, auth_enabled: bool = False) -> html.Div:
                             *(
                                 [
                                     html.A(
+                                        "Konto",
+                                        href="/password",
+                                        className="logout-link",
+                                    ),
+                                    html.A(
                                         "Abmelden",
                                         id="logout-link",
                                         href="/logout",
                                         className="logout-link",
-                                    )
+                                    ),
                                 ]
                                 if auth_enabled
                                 else []

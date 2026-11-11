@@ -90,7 +90,13 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
                     "collector_state",
                 )
             }
-            | {("POST", "login"), ("POST", "validate_session"), ("POST", "logout")},
+            | {
+                ("POST", "login"),
+                ("POST", "validate_session"),
+                ("POST", "logout"),
+                ("POST", "manage_accounts"),
+                ("POST", "change_password"),
+            },
             "collector": {
                 ("POST", "attempt"),
                 ("POST", "failure"),
@@ -253,5 +259,29 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
     def logout() -> Response:
         token = body().get("id")
         return jsonify(ok=store.logout(token) if isinstance(token, str) else False)
+
+    @app.post("/v1/auth/accounts")
+    def manage_accounts() -> tuple[Response, int] | Response:
+        data = body()
+        try:
+            return jsonify(
+                store.manage_accounts(
+                    data.get("id", ""), data.get("operation", "list"), data
+                )
+            )
+        except PermissionError:
+            return jsonify(error="Zugriff nicht erlaubt"), 403
+
+    @app.post("/v1/auth/password")
+    def change_password() -> tuple[Response, int] | Response:
+        data = body()
+        try:
+            return jsonify(
+                store.change_password(
+                    data.get("id", ""), data.get("old_password"), data.get("password")
+                )
+            )
+        except PermissionError:
+            return jsonify(error="Anmeldung erforderlich"), 401
 
     return app

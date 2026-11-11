@@ -12,6 +12,11 @@ from .store import Store
 def main() -> None:
     parser = argparse.ArgumentParser(description="Passwort eines Kontos ändern")
     parser.add_argument("username")
+    parser.add_argument(
+        "--initial",
+        action="store_true",
+        help="Passwortwechsel bei der nächsten Anmeldung verlangen",
+    )
     args = parser.parse_args()
     password = getpass("Neues Passwort: ")
     if password != getpass("Passwort wiederholen: "):
@@ -19,7 +24,7 @@ def main() -> None:
     store = Store(Settings.from_environment())
     # Do not initialize/recreate a missing database during a password reset.
     try:
-        store.reset_password(args.username, password)
+        store.reset_password(args.username, password, must_change=args.initial)
     except ValueError as error:
         parser.error(str(error))
     print("Passwort geändert.")
