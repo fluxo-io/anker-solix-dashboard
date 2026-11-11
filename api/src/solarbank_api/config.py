@@ -9,6 +9,18 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fluxo_auth import session_seconds
 
 
+def boolean(value: object, name: str) -> bool:
+    if type(value) is bool:
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    raise ValueError(f"{name} muss true oder false sein")
+
+
 def _valid_password_hash(value: str) -> bool:
     if len(value) > 1024:
         return False
@@ -56,6 +68,7 @@ class Settings:
     timezone_name: str = "Europe/Berlin"
     poll_interval_seconds: int = 300
     source_timezone_name: str | None = None
+    admin_require_password_change: bool = True
 
     @property
     def source_timezone(self) -> ZoneInfo | None:
@@ -64,6 +77,10 @@ class Settings:
         )
 
     def __post_init__(self) -> None:
+        if type(self.admin_require_password_change) is not bool:
+            raise ValueError(
+                "INIT_ADMIN_REQUIRE_PASSWORD_CHANGE muss true oder false sein"
+            )
         if not 1 <= self.session_lifetime_seconds <= 31 * 86400:
             raise ValueError("Ungültige Sitzungsdauer")
         if not 60 <= self.poll_interval_seconds <= 86400:
@@ -131,4 +148,8 @@ class Settings:
             admin_username=os.getenv("INIT_ADMIN_USERNAME", "").strip(),
             admin_password=os.getenv("INIT_ADMIN_PASSWORD", ""),
             admin_password_hash=os.getenv("INIT_ADMIN_PASSWORD_HASH", ""),
+            admin_require_password_change=boolean(
+                os.getenv("INIT_ADMIN_REQUIRE_PASSWORD_CHANGE", "true"),
+                "INIT_ADMIN_REQUIRE_PASSWORD_CHANGE",
+            ),
         )

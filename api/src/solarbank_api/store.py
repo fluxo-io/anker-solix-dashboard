@@ -168,6 +168,7 @@ class Store:
                     ),
                     authorization={"permissions": ["users.manage"]},
                     metadata={"display_name": self.settings.admin_username},
+                    must_change_password=self.settings.admin_require_password_change,
                 )
             if not accounts.migration_applied("anker-account-management-v1"):
                 existing = accounts.all()

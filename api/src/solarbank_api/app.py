@@ -12,7 +12,7 @@ from flask import Flask, Response, g, jsonify, request
 from fluxo_auth import session_seconds
 from werkzeug.exceptions import HTTPException
 
-from .config import Settings
+from .config import Settings, boolean
 from .dashboard import MAX_DASHBOARD_BYTES, dashboard
 from .store import Store
 from .validation import (
@@ -40,6 +40,10 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
             admin_username=app.config.get("INIT_ADMIN_USERNAME", "").strip(),
             admin_password=app.config.get("INIT_ADMIN_PASSWORD", ""),
             admin_password_hash=app.config.get("INIT_ADMIN_PASSWORD_HASH", ""),
+            admin_require_password_change=boolean(
+                app.config.get("INIT_ADMIN_REQUIRE_PASSWORD_CHANGE", True),
+                "INIT_ADMIN_REQUIRE_PASSWORD_CHANGE",
+            ),
             session_lifetime_seconds=session_seconds(app.config),
             timezone_name=app.config.get("DASHBOARD_TIMEZONE", "Europe/Berlin"),
             poll_interval_seconds=int(app.config.get("POLL_INTERVAL_SECONDS", 300)),

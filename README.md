@@ -50,6 +50,11 @@ Die drei unabhängigen Zufallswerte als `SECRET_KEY`, `API_TOKEN` und
 Alternativ kann `INIT_ADMIN_PASSWORD_HASH` einen vorhandenen sicheren
 Scrypt-/PBKDF2-Hash für den ersten Benutzer enthalten. Ein gesetztes
 Klartextpasswort hat Vorrang. Init-Werte ändern einen vorhandenen Benutzer nicht.
+`INIT_ADMIN_REQUIRE_PASSWORD_CHANGE=true` verlangt beim neuen Startkonto einen
+Passwortwechsel; `false` vergibt ein festes Passwort. Standard ist `true`, auch
+bei einem Hash. Migrationen und spätere Passwortresets behalten ihren bisherigen
+Vertrag. Zulässig sind `true`/`false`, `1`/`0`, `yes`/`no` und `on`/`off`
+(ohne Beachtung der Großschreibung); andere oder direkt an die Anwendung übergebene leere Werte stoppen den Start. Compose verwendet bei leerer Einstellung den Standard `true`.
 
 ### Anmeldung prüfen
 
@@ -366,6 +371,7 @@ Gerät sein zwischengespeichertes Icon ersetzt.
 | `INIT_ADMIN_USERNAME` | Benutzername | `admin` | initial / nein | API: Startkonto |
 | `INIT_ADMIN_PASSWORD` | Passwort, ≥12 Zeichen | leer | initial Passwort oder Hash / ja | API: Startkonto; danach entfernen |
 | `INIT_ADMIN_PASSWORD_HASH` | Werkzeug-Passworthash | leer | alternativ / ja | API: Startkonto; Klartext hat Vorrang |
+| `INIT_ADMIN_REQUIRE_PASSWORD_CHANGE` | Boolean | `true` | nein / nein | API: Pflichtwechsel nur für das neue Startkonto |
 | `SESSION_HOURS` | Stunden; ganze Sekunden, höchstens 31 Tage | `8` | nein / nein | API/Web: absolute Sitzungsfrist |
 | `SESSION_COOKIE_NAME` | Cookie-Name, 1–80 Zeichen | `solarbank_session`, bei Secure `__Host-solarbank_session` | nein / nein | Web: je Instanz eigener Namensraum |
 | `SESSION_COOKIE_SECURE` | `true`/`false` | lokal `false`, Server `true` | nein / nein | Web: HTTPS-Cookie |

@@ -26,6 +26,7 @@ def settings(tmp_path):
         collector_api_token="c" * 40,
         admin_username="admin",
         admin_password=PASSWORD,
+        admin_require_password_change=False,
     )
 
 

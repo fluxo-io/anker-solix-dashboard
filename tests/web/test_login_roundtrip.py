@@ -50,6 +50,7 @@ def api(tmp_path):
         secret_key=SECRET,
         admin_username="admin",
         admin_password=PASSWORD,
+        admin_require_password_change=False,
         collector_api_token="synthetic-collector-" + "z" * 40,
     )
     running = RunningAPI(settings)
