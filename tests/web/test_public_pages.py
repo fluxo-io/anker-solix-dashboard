@@ -73,7 +73,9 @@ def test_privacy_page_describes_actual_processing(tmp_path: Path) -> None:
     assert "CSV" not in body
     assert "inoffizielle" in body
     assert "lokalen Speicher des Browsers" in body
-    assert "kein Tracking" in body
+    assert "Nutzungsübersicht und Aktivitäten" in body
+    assert "keine externen Analyse-" in body
+    assert "keine automatische Löschung" in body
 
 
 def test_login_and_logout_share_public_fluxo_layout(

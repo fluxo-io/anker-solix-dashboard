@@ -95,7 +95,9 @@ def request_api(
         data = json.dumps(payload, allow_nan=False).encode()
     request = Request(url, data=data, headers=headers)
     budget = settings.api_timeout_seconds
-    if path == "/healthz":
+    if path == "/v1/activity/events":
+        budget = min(budget, 0.5)
+    elif path == "/healthz":
         budget = min(budget, 2)
     elif path == "/v1/dashboard":
         budget = settings.api_dashboard_timeout_seconds

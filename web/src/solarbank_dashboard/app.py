@@ -21,8 +21,11 @@ from flask import (
     has_request_context,
     jsonify,
     render_template,
+    request,
 )
+from flask_login import current_user
 
+from solarbank_dashboard.activity import register_activity
 from solarbank_dashboard.assets import design_tokens, install_assets
 from solarbank_dashboard.auth import AuthSettings, configure_auth
 from solarbank_dashboard.charts import apply_chart_theme, line_figure
@@ -492,7 +495,9 @@ def _table_alternative_link() -> html.A:
     )
 
 
-def build_layout(*, auth_enabled: bool = False) -> html.Div:
+def build_layout(
+    *, auth_enabled: bool = False, can_manage_users: bool = False
+) -> html.Div:
     today = dashboard_today()
     period_options = [{"label": label, "value": label} for label in PRESETS]
     period_options.append({"label": CUSTOM_RANGE, "value": CUSTOM_RANGE})
@@ -706,6 +711,22 @@ def build_layout(*, auth_enabled: bool = False) -> html.Div:
                             ),
                             *(
                                 [
+                                    *(
+                                        [
+                                            html.A(
+                                                "Nutzung",
+                                                href="/admin/analytics",
+                                                className="logout-link",
+                                            ),
+                                            html.A(
+                                                "Aktivitäten",
+                                                href="/admin/activity",
+                                                className="logout-link",
+                                            ),
+                                        ]
+                                        if can_manage_users
+                                        else []
+                                    ),
                                     html.A(
                                         "Konto",
                                         href="/password",
@@ -1340,10 +1361,20 @@ def create_app(
     if api_client is not None:
         dash_app.server.extensions["solarbank_api_transport"] = api_client
     configure_auth(dash_app.server, auth_config)
+    register_activity(dash_app.server, enabled=auth_config.enabled)
     register_public_pages(dash_app.server)
 
     def serve_layout() -> html.Div:
-        return build_layout(auth_enabled=auth_config.enabled)
+        return build_layout(
+            auth_enabled=auth_config.enabled,
+            can_manage_users=bool(
+                auth_config.enabled
+                and has_request_context()
+                and request.path in {"/", "/_dash-layout"}
+                and current_user.is_authenticated
+                and current_user.can_manage_users
+            ),
+        )
 
     dash_app.layout = serve_layout
     register_callbacks(dash_app)

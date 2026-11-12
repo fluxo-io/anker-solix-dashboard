@@ -13,10 +13,11 @@ from typing import Any
 
 from fluxo_auth import AuthService, UserStore, hash_password, verify_password
 
+from . import analytics
 from .config import Settings
 from .validation import MEASUREMENT_COLUMNS, NUMERIC_COLUMNS
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _KEY_COLUMNS = {"bucket_start", "site_id", "device_sn"}
 _WRITE_COLUMNS = (*MEASUREMENT_COLUMNS, "raw_data")
 UPSERT_MEASUREMENT = f"""
@@ -117,13 +118,32 @@ class Store:
             version = connection.execute(
                 "SELECT MAX(version) FROM schema_migrations"
             ).fetchone()[0]
-            if version is not None and version != SCHEMA_VERSION:
+            if version is not None and version not in {1, SCHEMA_VERSION}:
                 raise RuntimeError("Nicht unterstützte Datenbankversion")
             if version is None:
                 self._create_schema(connection)
                 connection.execute(
                     "INSERT INTO schema_migrations VALUES (?, ?)",
-                    (SCHEMA_VERSION, datetime.now(UTC).isoformat()),
+                    (1, datetime.now(UTC).isoformat()),
+                )
+            if version is None or version < 2:
+                connection.execute("""
+                    CREATE TABLE activity_events (
+                        id INTEGER PRIMARY KEY,
+                        ts TEXT NOT NULL,
+                        user TEXT NOT NULL,
+                        event TEXT NOT NULL,
+                        target TEXT NOT NULL DEFAULT '',
+                        actor_verified INTEGER NOT NULL CHECK (actor_verified IN (0, 1))
+                    )
+                """)
+                connection.execute("CREATE INDEX activity_time ON activity_events(ts)")
+                connection.execute(
+                    "CREATE INDEX activity_user ON activity_events(user, ts)"
+                )
+                connection.execute(
+                    "INSERT INTO schema_migrations VALUES (2, ?)",
+                    (datetime.now(UTC).isoformat(),),
                 )
             accounts = UserStore(connection)
             accounts.ensure_schema()
@@ -169,6 +189,13 @@ class Store:
                     authorization={"permissions": ["users.manage"]},
                     metadata={"display_name": self.settings.admin_username},
                     must_change_password=self.settings.admin_require_password_change,
+                )
+                self._record(
+                    connection,
+                    "bootstrap",
+                    "setup",
+                    self.settings.admin_username,
+                    verified=False,
                 )
             if not accounts.migration_applied("anker-account-management-v1"):
                 existing = accounts.all()
@@ -262,6 +289,7 @@ class Store:
             version = connection.execute(
                 "SELECT MAX(version) FROM schema_migrations"
             ).fetchone()[0]
+            connection.execute("SELECT id, actor_verified FROM activity_events LIMIT 1")
             connection.execute("SELECT 1 FROM solarbank_measurements LIMIT 1")
             state = connection.execute(
                 "SELECT 1 FROM collector_state WHERE id = 1"
@@ -443,7 +471,9 @@ class Store:
                 legacy_attempt_keys=[("anker-login-v1", client_hash)],
             )
             if result.user is None:
+                self._record(connection, "login_failed", username, verified=False)
                 return None, result.retry_after
+            self._record(connection, "login_success", result.user.username)
             return {**self._account(result.user), "id": result.token}, None
 
     def session_user(self, token: str) -> dict[str, str] | None:
@@ -454,7 +484,12 @@ class Store:
     def logout(self, token: str) -> bool:
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            return self._auth(connection).logout(token)
+            service = self._auth(connection)
+            actor = service.validate(token)
+            removed = service.logout(token)
+            if actor and removed:
+                self._record(connection, "logout", actor.username)
+            return removed
 
     def reset_password(
         self, username: str, password: str, *, must_change: bool = False
@@ -470,6 +505,9 @@ class Store:
                 raise ValueError("Benutzer nicht gefunden.")
             accounts.update(
                 user.id, password_hash=password_hash, must_change_password=must_change
+            )
+            self._record(
+                connection, "password_reset", "system", user.username, verified=False
             )
 
     @staticmethod
@@ -527,6 +565,12 @@ class Store:
                 )
             else:
                 raise ValueError("Unbekannte Aktion.")
+            self._record(
+                connection,
+                "user_create" if operation == "create" else "password_reset",
+                actor.username,
+                user.username,
+            )
             return {"user": self._account(user)}
 
     def change_password(self, token: str, old_password: str, password: str) -> dict:
@@ -546,4 +590,76 @@ class Store:
             user = UserStore(connection).update(
                 user.id, password_hash=password_hash, must_change_password=False
             )
+            self._record(connection, "password_change", user.username)
             return {**self._account(user), "id": service.issue(user.id)}
+
+    @staticmethod
+    def _record(connection, event, user, target="", *, verified=True):
+        if event not in analytics.EVENT_LABELS:
+            raise ValueError("Unbekanntes Ereignis.")
+        connection.execute(
+            "INSERT INTO activity_events (ts, user, event, target, actor_verified) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                datetime.now(UTC).isoformat(),
+                str(user)[:254],
+                event,
+                str(target)[:254],
+                int(verified),
+            ),
+        )
+
+    def record_usage(self, token, event, target):
+        allowed_targets = {
+            "/",
+            "/password",
+            "/users",
+            "/users/password-reset",
+            "/admin/analytics",
+            "/admin/activity",
+        }
+        if event not in {"page_view", "access_denied"} or target not in allowed_targets:
+            raise ValueError("Ungültiges Seitenereignis.")
+        with self.connection() as connection:
+            # Optional telemetry must not wait behind a collector transaction.
+            connection.execute("PRAGMA busy_timeout = 100")
+            connection.execute("BEGIN IMMEDIATE")
+            actor = self._auth(connection).validate(token)
+            if actor is None or actor.must_change_password:
+                raise PermissionError("Anmeldung erforderlich.")
+            self._record(connection, event, actor.username, target)
+        return True
+
+    def activity_report(self, token, data, *, usage=False):
+        with self.connection() as connection:
+            # Validate the session and read its report in one database snapshot.
+            connection.execute("BEGIN")
+            actor = self._auth(connection).validate(token)
+            if (
+                actor is None
+                or actor.must_change_password
+                or "users.manage" not in actor.authorization.get("permissions", [])
+            ):
+                raise PermissionError("Zugriff nicht erlaubt.")
+            entries = [
+                dict(row) for row in connection.execute("SELECT * FROM activity_events")
+            ]
+        if usage:
+            return analytics.build(
+                entries,
+                self.settings.analytics_timezone,
+                days=data.get("range", "30"),
+                bucket=data.get("bucket", ""),
+                user=data.get("user", ""),
+                event=data.get("event", ""),
+                excluded_users=self.settings.analytics_excluded_users,
+            )
+        return analytics.activity(
+            entries,
+            self.settings.analytics_timezone,
+            days=data.get("range", "30"),
+            user=data.get("user", ""),
+            event=data.get("event", ""),
+            q=data.get("q", ""),
+            page=data.get("page", 1),
+        )

@@ -66,6 +66,8 @@ class Settings:
 
     session_lifetime_seconds: int = 28800
     timezone_name: str = "Europe/Berlin"
+    analytics_timezone: str = "Europe/Berlin"
+    analytics_excluded_users: str = ""
     poll_interval_seconds: int = 300
     source_timezone_name: str | None = None
     admin_require_password_change: bool = True
@@ -87,6 +89,7 @@ class Settings:
             raise ValueError("POLL_INTERVAL_SECONDS muss zwischen 60 und 86400 liegen")
         for name, value in (
             ("DASHBOARD_TIMEZONE", self.timezone_name),
+            ("ANALYTICS_TIMEZONE", self.analytics_timezone),
             ("ANKER_SOURCE_TIMEZONE", self.source_timezone_name),
         ):
             if value is not None:
@@ -139,6 +142,8 @@ class Settings:
         return cls(
             session_lifetime_seconds=session_seconds(os.environ),
             timezone_name=os.getenv("DASHBOARD_TIMEZONE", "Europe/Berlin").strip(),
+            analytics_timezone=os.getenv("ANALYTICS_TIMEZONE", "Europe/Berlin").strip(),
+            analytics_excluded_users=os.getenv("ANALYTICS_EXCLUDED_USERS", ""),
             source_timezone_name=os.getenv("ANKER_SOURCE_TIMEZONE", "").strip() or None,
             poll_interval_seconds=interval,
             db_path=Path(os.getenv("DATA_DIR", "/data")) / "app.sqlite3",

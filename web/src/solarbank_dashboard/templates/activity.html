@@ -1,0 +1,34 @@
+{% extends "public_base.html" %}
+{% set title = 'Nutzung' if usage else 'Aktivitäten' %}
+{% block title %}{{ title }} · Private Solardatenbank{% endblock %}
+{% block main_class %}accounts-main usage-main{% endblock %}
+{% block content %}
+<h1>{{ title }}</h1>
+<nav class="account-nav" aria-label="Verwaltung"><a href="/">Dashboard</a><a href="/users">Nutzer</a><a href="/admin/analytics"{% if usage %} aria-current="page"{% endif %}>Nutzung</a><a href="/admin/activity"{% if not usage %} aria-current="page"{% endif %}>Aktivitäten</a><a href="/logout">Abmelden</a></nav>
+{% if data is none %}<p role="alert">Daten nicht verfügbar. Bitte erneut versuchen.</p>
+{% else %}
+<form method="get" class="usage-filters">
+<div><label for="range">Zeitraum</label><select id="range" name="range">{% for value, label in ranges.items() %}<option value="{{ value }}"{% if data.range == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+{% if usage %}<div><label for="bucket">Gruppierung</label><select id="bucket" name="bucket">{% for value, label in buckets.items() %}<option value="{{ value }}"{% if data.bucket_requested == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>{% endif %}
+<div><label for="user">Benutzer</label><select id="user" name="user"><option value="">Alle Benutzer</option>{% for name in data.users %}<option{% if data.user == name %} selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
+<div><label for="event">Ereignis</label><select id="event" name="event"><option value="">Alle Ereignisse</option>{% for value, label in events.items() %}<option value="{{ value }}"{% if data.event == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+{% if not usage %}<div><label for="q">Suche</label><input id="q" name="q" type="search" value="{{ data.q }}" maxlength="254"></div>{% endif %}
+<button class="primary-button">Anwenden</button>
+</form>
+{% if usage %}
+<div class="usage-kpis"><div><span>Gesamt-Ereignisse</span><strong>{{ data.kpi.events }}</strong></div><div><span>Aktive Benutzer</span><strong>{{ data.kpi.users }}</strong></div><div><span>Meiste Ereignisse</span><strong>{{ data.kpi.busiest_user or '–' }}</strong></div><div><span>Spitzenwert</span><strong>{{ data.kpi.peak_value }}</strong>{% if data.kpi.peak_label %}<small>{{ data.kpi.peak_label }}</small>{% endif %}</div></div>
+<section class="usage-panel" aria-labelledby="timeline-title"><h2 id="timeline-title">Verlauf</h2>
+{% if data.bucket_coarsened %}<p>Zusammengefasst: {% if data.bucket_stride > 1 %}{{ data.bucket_stride }} Wochen{% else %}{{ buckets[data.bucket] }}{% endif %}.</p>{% endif %}
+{% if data.kpi.events %}
+<svg class="usage-chart" viewBox="0 0 960 310" role="img" aria-labelledby="chart-title"><title id="chart-title">{{ data.kpi.events }} Ereignisse · {{ data.range_label }}</title><line x1="55" y1="260" x2="935" y2="260" stroke="currentColor" opacity=".3"/>{% for bar in data.bars %}<rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" fill="{{ bar.color }}"><title>{{ bar.label }}</title></rect>{% endfor %}{% for tick in data.axis %}<text x="{{ tick.x }}" y="292" text-anchor="{{ tick.anchor }}">{{ tick.label }}</text>{% endfor %}</svg>
+<ul class="usage-legend">{% for series in data.series %}<li><span style="background:{{ series.color }}"></span>{{ series.label }} ({{ series.total }})</li>{% endfor %}</ul>
+<details><summary>Verlauf als Tabelle</summary><div class="account-table" tabindex="0" role="region" aria-label="Verlauf"><table><thead><tr><th>Zeitpunkt</th><th>Ereignisse</th>{% for series in data.series %}<th>{{ series.label }}</th>{% endfor %}</tr></thead><tbody>{% for row in data.chart_rows %}<tr><td>{{ row.label }}</td><td>{{ row.total }}</td>{% for count in row.counts %}<td>{{ count }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></details>
+{% else %}<p>Keine Ereignisse im gewählten Zeitraum.</p>{% endif %}
+</section>
+<section class="usage-panel" aria-labelledby="users-title"><h2 id="users-title">Nach Benutzer</h2><div class="account-table" tabindex="0" role="region" aria-label="Nutzung nach Benutzer"><table><thead><tr><th>Benutzer</th><th>Ereignisse</th><th>Seitenaufrufe</th><th>Anmeldungen</th><th>Exporte</th><th>Abweisungen</th><th>Letzte Aktivität</th></tr></thead><tbody>{% for row in data.table %}<tr><td>{{ 'Nicht zugeordnet' if row.user == '-' else row.user }}</td><td>{{ row.total }}</td><td>{{ row.page_view }}</td><td>{{ row.logins }}</td><td>{{ row.exports }}</td><td>{{ row.denied }}</td><td class="usage-time">{{ row.last_seen }}</td></tr>{% else %}<tr><td colspan="7">Keine Ereignisse gefunden.</td></tr>{% endfor %}</tbody></table></div></section>
+{% else %}
+<p>{{ data.total }} Ereignisse</p><div class="account-table" tabindex="0" role="region" aria-label="Aktivitäten"><table><thead><tr><th>Zeitpunkt</th><th>Benutzer</th><th>Ereignis</th><th>Ziel</th></tr></thead><tbody>{% for row in data.rows %}<tr><td class="usage-time">{{ row.time }}</td><td>{{ row.user }}</td><td>{{ row.label }}</td><td>{{ row.target or '–' }}</td></tr>{% else %}<tr><td colspan="4">Keine Ereignisse gefunden.</td></tr>{% endfor %}</tbody></table></div>
+{% if data.pages > 1 %}<nav class="account-nav usage-pagination" aria-label="Seiten">{% if data.page > 1 %}<a href="?{{ {'range': data.range, 'user': data.user, 'event': data.event, 'q': data.q, 'page': data.page - 1}|urlencode }}">Zurück</a>{% endif %}<span>Seite {{ data.page }} von {{ data.pages }}</span>{% if data.page < data.pages %}<a href="?{{ {'range': data.range, 'user': data.user, 'event': data.event, 'q': data.q, 'page': data.page + 1}|urlencode }}">Weiter</a>{% endif %}</nav>{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

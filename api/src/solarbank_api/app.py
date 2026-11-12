@@ -46,6 +46,8 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
             ),
             session_lifetime_seconds=session_seconds(app.config),
             timezone_name=app.config.get("DASHBOARD_TIMEZONE", "Europe/Berlin"),
+            analytics_timezone=app.config.get("ANALYTICS_TIMEZONE", "Europe/Berlin"),
+            analytics_excluded_users=app.config.get("ANALYTICS_EXCLUDED_USERS", ""),
             poll_interval_seconds=int(app.config.get("POLL_INTERVAL_SECONDS", 300)),
             source_timezone_name=app.config.get("ANKER_SOURCE_TIMEZONE") or None,
         )
@@ -100,6 +102,9 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
                 ("POST", "logout"),
                 ("POST", "manage_accounts"),
                 ("POST", "change_password"),
+                ("POST", "analytics_report"),
+                ("POST", "activity_report"),
+                ("POST", "activity_event"),
             },
             "collector": {
                 ("POST", "attempt"),
@@ -207,6 +212,44 @@ def create_app(config_override: dict[str, Any] | Settings | None = None) -> Flas
         if not isinstance(data, dict):
             raise ValueError("Anfrage muss ein Objekt sein")
         return data
+
+    def activity_filters(data):
+        for key in ("id", "range", "bucket", "user", "event", "q", "target"):
+            if key in data and (not isinstance(data[key], str) or len(data[key]) > 254):
+                raise ValueError("Ungültiger Filter.")
+        if (
+            type(data.get("page", 1)) is not int
+            or not 1 <= data.get("page", 1) <= 1000000
+        ):
+            raise ValueError("Ungültige Seite.")
+        return data
+
+    def report_response(usage):
+        data = activity_filters(body())
+        try:
+            return jsonify(store.activity_report(data.get("id", ""), data, usage=usage))
+        except PermissionError:
+            return jsonify(error="Zugriff nicht erlaubt"), 403
+
+    @app.post("/v1/analytics")
+    def analytics_report():
+        return report_response(True)
+
+    @app.post("/v1/activity")
+    def activity_report():
+        return report_response(False)
+
+    @app.post("/v1/activity/events")
+    def activity_event():
+        data = activity_filters(body())
+        try:
+            return jsonify(
+                ok=store.record_usage(
+                    data.get("id", ""), data.get("event", ""), data.get("target", "")
+                )
+            )
+        except PermissionError:
+            return jsonify(error="Anmeldung erforderlich"), 401
 
     @app.post("/v1/collector/attempt")
     def attempt() -> Response:

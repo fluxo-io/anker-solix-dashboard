@@ -97,6 +97,7 @@ wird erst mit diesem ausdrücklichen Befehl fortgesetzt. Danach:
 
 ```sh
 python3 scripts/docker_local.py stop collector web api
+python3 scripts/docker_local.py build api web
 python3 scripts/docker_local.py run --rm --no-deps api python -m solarbank_api.manage migrate
 python3 scripts/docker_local.py up -d --build --wait
 ```
@@ -387,6 +388,8 @@ Gerät sein zwischengespeichertes Icon ersetzt.
 | `API_REQUEST_TIMEOUT_SECONDS` | Sekunden | `90` | nein / nein | Collector: Cloud-Timeout |
 | `MAX_RETRIES` | ganze Zahl | `2` | nein / nein | Collector: Cloud-Abrufe; keine pauschale Mutation-Wiederholung |
 | `LOG_LEVEL` | Log-Level | `INFO` | nein / nein | Collector: Betriebslogs |
+| `ANALYTICS_EXCLUDED_USERS` | Kommagetrennte Benutzernamen | leer | nein / nein | Nur API: Ausschluss aus Nutzungsstatistik |
+| `ANALYTICS_TIMEZONE` | IANA-Zeitzone | `Europe/Berlin` | nein / nein | Nur API: Nutzungsübersicht und Aktivitäten |
 | `DASHBOARD_TIMEZONE` | IANA-Zeitzone | `Europe/Berlin` | nein / nein | API: Tagesgrenzen; Web: Darstellung |
 | `ANKER_SOURCE_TIMEZONE` | IANA-Zeitzone oder leer | leer | nein / nein | API/Web: Interpretation der Cloud-Messzeit |
 
@@ -398,9 +401,10 @@ Flask-Login-Cookienamensraum ist vorsorglich ebenfalls instanzbezogen.
 Betriebslogs nach stdout/stderr sind von fachlichen Messwerten getrennt. Compose
 rotiert sie mit 3 × 10 MiB je Container. Der technische Collectorstatus beschreibt
 Abrufe; er ersetzt kein vollständiges Benutzeraudit. Messwerte sind Fachbestand
-in SQLite und werden von der API verwaltet. Dieses Projekt führt kein neues
-Audit- oder Statistikmodul allein zur Angleichung ein. Tokens, Passwörter und
-Cloud-Nutzlasten gehören nicht ins Betriebslog.
+in SQLite und werden von der API verwaltet. Die API speichert Benutzeraktivitäten
+separat in `activity_events`; Verwaltungskonten sehen daraus Nutzung und
+Aktivitäten (siehe unten). Tokens, Passwörter und Cloud-Nutzlasten gehören
+nicht ins Betriebslog.
 
 Die Sicherung bleibt vorbereitet: Inventar und manuelle Werkzeuge sind vorhanden,
 aber kein regelmäßiger Backupjob, Zeitplan oder externes Ziel wird eingerichtet.
@@ -473,3 +477,56 @@ spätere Verlängerung reaktiviert sie nicht.
 Über „Konto“ → „Nutzer verwalten“ erreicht das Verwaltungskonto die Nutzerübersicht. Neue Konten erhalten Dashboardzugriff ohne Verwaltungsrecht. Bei Anlage und Reset stehen festes Passwort und Initialpasswort zur Wahl; Initialpasswörter müssen vor Zugriff auf das Dashboard geändert werden. Der Status bleibt in der Übersicht sichtbar. Das eigene Passwort lässt sich unter „Konto“ ändern. Der interaktive API-Befehl `python -m solarbank_api.accounts USERNAME --initial` setzt ein Initialpasswort; ohne `--initial` bleibt es ein festes Passwort.
 
 Die letzte erfolgreiche Passwortanmeldung wird in UTC dauerhaft erfasst und mit Sekunden sowie Zeitzone Europe/Berlin angezeigt. Fehlversuche, Sitzungsprüfungen und Passwortänderungen ändern diesen Zeitpunkt nicht; fehlende historische Angaben erscheinen als „Noch nicht erfasst“. Die ausdrücklich ausgeführte Berechtigungsmigration erhält das konfigurierte Verwaltungskonto beziehungsweise das einzige vorhandene Altkonto; neue gewöhnliche Konten erhalten keine Verwaltungsrechte. Bei mehreren Altkonten muss `INIT_ADMIN_USERNAME` ein vorhandenes Verwaltungskonto benennen; nach Korrektur der Einstellung die Migration erneut ausführen. Bis zur erfolgreichen Migration startet die API nicht; vorhandene Daten bleiben erhalten. Das erstmalige Zuweisen des Verwaltungsrechts beendet die bisherigen Sitzungen dieses Kontos; danach ist eine Neuanmeldung nötig. Kontoänderungen prüfen die Berechtigung in derselben SQLite-Transaktion wie die Änderung. Produktive Daten bleiben beim lokalen Test unberührt.
+
+
+### Nutzung und Aktivitäten
+
+Verwaltungskonten (`users.manage`) finden **Nutzung** unter `/admin/analytics`
+und **Aktivitäten** unter `/admin/activity`. Die API prüft dafür die aktuelle
+Sitzung und das Verwaltungsrecht; ein Web-Dienstschlüssel allein reicht nicht.
+Die Statistik zeigt Gesamt-Ereignisse (keine Nutzungsdauer), aktive Benutzer,
+Verlauf, Spitzenwert und pro Benutzer Seitenaufrufe, Anmeldungen, Exporte, Abweisungen sowie die
+letzte Aktivität mit Sekunden und Zeitzone. Zeitraum (24 Stunden, 7/30/90 Tage,
+alles), Benutzer und Ereignis sind filterbar. Der Verlauf lässt sich nach Stunde,
+Tag oder Woche gruppieren; der Spitzenwert zeigt die höchste Ereigniszahl pro
+Zeitabschnitt samt Zeitpunkt. Lange Zeiträume werden bei Bedarf zusammengefasst.
+Aktivitäten bieten zusätzlich eine
+Suche und Seiten mit jeweils 50 Einträgen. Das Dashboard besitzt derzeit keine
+Exportfunktion; die Exportspalte bleibt deshalb null.
+
+`ANALYTICS_EXCLUDED_USERS=admin,testuser` wird ausschließlich in der API ausgewertet:
+Kommas trennen Namen, umgebender Leerraum und leere Einträge werden ignoriert,
+Unicode-Groß-/Kleinschreibung wird per `casefold()` verglichen. Der leere Standard
+schließt niemanden aus. Der Ausschluss wirkt auch auf vorhandene Ereignisse und
+sämtliche Statistikzahlen, Diagramme, Tabellen und Benutzeroptionen. Er löscht
+nichts; im Aktivitätenprotokoll bleiben diese Benutzer sichtbar. Fehlgeschlagene
+Anmeldeversuche und technische Einrichtung/CLI-Aktionen werden als Ereignisse,
+aber nicht als aktive Benutzer gezählt. Verifizierte Benutzer mit Namen wie
+`system` bleiben normale Benutzer. `ANALYTICS_TIMEZONE` ist standardmäßig
+`Europe/Berlin` und wird von der API festgelegt.
+
+**Schema 2 benötigt bei bestehenden Datenbanken eine ausdrückliche Migration.**
+Zuerst konsistent sichern, alle Schreiber stoppen, das neue API-Image bauen und
+anschließend mit dem oben beschriebenen `python -m solarbank_api.manage migrate`
+migrieren. Ein Start mit Schema 1 verweigert den Betrieb ohne Bestandsänderung.
+Die Migration ergänzt `activity_events` in derselben `data/db/app.sqlite3`;
+Messwerte, Konten und gültige Sitzungen bleiben erhalten. Wiederholung ist sicher.
+Historische Aktivitäten werden nicht erfunden. Die vorhandene Dateisicherung
+erfasst die neue Tabelle automatisch; es entsteht kein weiterer persistenter Pfad.
+
+Anmeldung (auch Fehlversuche), Abmeldung und erfolgreiche Konto-/Passwortänderungen
+schreiben ihr Pflichtaudit in derselben Transaktion wie die Zustandsänderung. Bei
+einem Auditfehler wird die Transaktion zurückgerollt. Optionale Seitenereignisse
+betreffen erfolgreiche geschützte HTML-Seiten und Abweisungen, keine Assets,
+Dash-Abfragen oder Messwertpolls. Der API-Schreibversuch wartet höchstens 100 ms
+auf eine SQLite-Sperre, der Web-Aufruf höchstens 500 ms; Fehler werden protokolliert
+und beeinträchtigen die Seite nicht. Auswertungsfehler erscheinen dagegen als
+Fehler (503), niemals als erfolgreiche leere Statistik. Bei `AUTH_ENABLED=false`
+sind Verwaltungsansichten und optionale Seitenerfassung abgeschaltet.
+
+Die Ereignisse bleiben ohne automatische Rotation/Löschung im vorhandenen Store.
+Die Dienstmatrix erlaubt nur dem Web-Schlüssel POST auf `/v1/analytics`,
+`/v1/activity` und `/v1/activity/events`; Collector, anonyme oder ungültige
+Sitzungen erhalten keinen Zugriff. Protokolle enthalten Zeitpunkt, Benutzer,
+Ereignis, Ziel und die Kennzeichnung des verifizierten Akteurs, keine Passwörter,
+Sitzungstokens, Suchtexte oder vollständigen Seiteninhalte.
