@@ -438,7 +438,9 @@ input {
 .account-table { max-width: 100%; overflow-x: auto; margin-bottom: 1.5rem; }
 .account-table table { border-collapse: collapse; width: 100%; }
 .account-table th, .account-table td { padding: 0.75rem; border-bottom: 1px solid var(--fluxo-line); text-align: left; }
-.account-table th, .account-table td:nth-child(4) { white-space: nowrap; }
+.account-table th, .account-login-time { white-space: nowrap; }
+.account-status { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.account-password-badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: var(--fluxo-radius-control); background: var(--fluxo-warning-soft); color: var(--fluxo-warning); font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
 .account-form { width: min(32rem, 100%); }
 .account-form select { font: inherit; max-width: 100%; }
 .account-form h2 { margin-top: 0; }
